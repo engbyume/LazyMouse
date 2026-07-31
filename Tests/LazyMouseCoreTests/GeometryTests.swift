@@ -37,4 +37,22 @@ final class GeometryTests: XCTestCase {
         )
         XCTAssertEqual(result, CGPoint(x: 120, y: 100))
     }
+
+    func testTwoFreeCursorsCanShareOneDisplay() {
+        let first = CursorGeometry.move(
+            point: CGPoint(x: 400, y: 300),
+            delta: CGPoint(x: 40, y: 20),
+            boundary: .free,
+            displays: [display]
+        )
+        let second = CursorGeometry.move(
+            point: CGPoint(x: 400, y: 300),
+            delta: CGPoint(x: -40, y: -20),
+            boundary: .free,
+            displays: [display]
+        )
+        XCTAssertEqual(first, CGPoint(x: 440, y: 320))
+        XCTAssertEqual(second, CGPoint(x: 360, y: 280))
+        XCTAssertNotEqual(first, second)
+    }
 }

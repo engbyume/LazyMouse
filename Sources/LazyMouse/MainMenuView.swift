@@ -8,39 +8,70 @@ struct MainMenuView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("LazyMouse", systemImage: "cursorarrow.rays")
+                Label("LazyMouse", image: "AppIcon")
                     .font(.headline)
                 Spacer()
                 Circle()
-                    .fill(state.accessibilityTrusted ? .green : .orange)
+                    .fill(state.separateCursorEnabled ? (state.hidExclusive ? .green : .orange) : .gray)
                     .frame(width: 8, height: 8)
             }
 
-            Toggle("Independent cursor mode", isOn: Binding(
-                get: { state.independentMode },
-                set: { state.setIndependentMode($0) }
+            Toggle("Separate external-mouse cursor", isOn: Binding(
+                get: { state.separateCursorEnabled },
+                set: { state.setSeparateCursorEnabled($0) }
             ))
-            .help("Suppress ordinary mouse movement so each HID mouse can have its own overlay cursor")
 
-            if !state.accessibilityTrusted {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Accessibility permission is needed for independent mode.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Button("Open Accessibility Settings") {
-                        state.openAccessibilitySettings()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+            ColorPicker("Cursor color", selection: Binding(
+                get: { Color(nsColor: state.cursorColor.nsColor) },
+                set: { state.setCursorColor(NSColor($0)) }
+            ), supportsOpacity: false)
+
+            Text(state.separateCursorEnabled
+                 ? "The external mouse uses the overlay; the trackpad keeps the normal cursor."
+                 : "The mouse and trackpad both use the normal macOS cursor.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if state.separateCursorEnabled && (!state.hidExclusive || state.devices.isEmpty) {
+                Button("Request Input Monitoring Access") {
+                    state.requestInputMonitoringAccess()
                 }
+                .controlSize(.small)
+                Button("Open Input Monitoring Settings") {
+                    state.openInputMonitoringSettings()
+                }
+                .controlSize(.small)
+                .help("Allow LazyMouse to receive HID input from Bluetooth and USB pointing devices")
             }
 
             Divider()
-            Text(state.devices.isEmpty ? "No pointing devices detected" : "Detected mice")
-                .font(.subheadline.weight(.semibold))
+            HStack {
+                Text(!state.separateCursorEnabled
+                     ? "Single cursor mode"
+                     : state.devices.isEmpty
+                     ? "No external mouse detected"
+                     : state.hidExclusive
+                     ? "External mouse isolated"
+                     : "Mouse detected; capture unavailable")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Button { state.rescanDevices() } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .help("Rescan connected USB and Bluetooth pointing devices")
+            }
 
             if state.devices.isEmpty {
-                Text("Connect a USB, Bluetooth, or receiver-based mouse, then wait a moment.")
+                Text(!state.separateCursorEnabled
+                     ? "Turn on separate cursor mode to use the external mouse independently."
+                     : state.hidAvailable
+                     ? "Connect the external mouse, then rescan. The built-in trackpad stays with the normal cursor."
+                     : "LazyMouse could not open the HID manager. Check Input Monitoring permission, then rescan.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if state.separateCursorEnabled && !state.hidExclusive {
+                Text("The mouse is listed, but exclusive capture is not active. Request Input Monitoring access, then rescan.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
@@ -49,8 +80,17 @@ struct MainMenuView: View {
                 }
             }
 
+            if state.separateCursorEnabled && !state.postEventsAvailable {
+                Button("Request Click Access") {
+                    state.requestClickAccess()
+                }
+                .controlSize(.small)
+            }
+
             Divider()
             HStack {
+                Button("Rescan mice") { state.rescanDevices() }
+                    .controlSize(.small)
                 Button("Refresh displays") { state.refreshDisplays() }
                     .controlSize(.small)
                 Spacer()

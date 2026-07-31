@@ -15,7 +15,6 @@ let package = Package(
             dependencies: ["LazyMouseCore"],
             linkerSettings: [
                 .linkedFramework("IOKit"),
-                .linkedFramework("ApplicationServices"),
                 .linkedFramework("CoreGraphics")
             ]
         ),
