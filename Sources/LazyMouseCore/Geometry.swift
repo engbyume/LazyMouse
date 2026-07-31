@@ -44,3 +44,16 @@ public enum CursorGeometry {
         )
     }
 }
+
+public enum MouseEventGeometry {
+    public static func quartzPoint(
+        from appKitPoint: CGPoint,
+        appKitPrimaryFrame: CGRect,
+        quartzPrimaryBounds: CGRect
+    ) -> CGPoint {
+        CGPoint(
+            x: quartzPrimaryBounds.origin.x + (appKitPoint.x - appKitPrimaryFrame.origin.x),
+            y: quartzPrimaryBounds.origin.y + quartzPrimaryBounds.size.height - (appKitPoint.y - appKitPrimaryFrame.origin.y)
+        )
+    }
+}

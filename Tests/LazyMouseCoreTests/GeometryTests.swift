@@ -55,4 +55,22 @@ final class GeometryTests: XCTestCase {
         XCTAssertEqual(second, CGPoint(x: 360, y: 280))
         XCTAssertNotEqual(first, second)
     }
+
+    func testQuartzPointFlipsAppKitYCoordinate() {
+        let result = MouseEventGeometry.quartzPoint(
+            from: CGPoint(x: 120, y: 100),
+            appKitPrimaryFrame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+            quartzPrimaryBounds: CGRect(x: 0, y: 0, width: 1512, height: 982)
+        )
+        XCTAssertEqual(result, CGPoint(x: 120, y: 882))
+    }
+
+    func testQuartzPointPreservesDisplayOffsets() {
+        let result = MouseEventGeometry.quartzPoint(
+            from: CGPoint(x: -40, y: 1100),
+            appKitPrimaryFrame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+            quartzPrimaryBounds: CGRect(x: 0, y: 0, width: 1512, height: 982)
+        )
+        XCTAssertEqual(result, CGPoint(x: -40, y: -118))
+    }
 }
