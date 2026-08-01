@@ -10,9 +10,20 @@ final class VirtualMouseEventInjector {
     }
 
     private var clickRecords: [Int: ClickRecord] = [:]
+    private let eventSource: CGEventSource?
+    private let canPostEvents: () -> Bool
 
-    func postButton(button: Int, pressed: Bool, at position: CGPoint) {
-        guard CGPreflightPostEventAccess(), let mouseButton = mouseButton(for: button) else { return }
+    init(
+        canPostEvents: @escaping () -> Bool = { CGPreflightPostEventAccess() }
+    ) {
+        self.canPostEvents = canPostEvents
+        eventSource = CGEventSource(stateID: .combinedSessionState)
+        eventSource?.localEventsSuppressionInterval = 0
+    }
+
+    @discardableResult
+    func postButton(button: Int, pressed: Bool, at position: CGPoint) -> Bool {
+        guard canPostEvents(), let mouseButton = mouseButton(for: button) else { return false }
         let quartzPosition = quartzPoint(from: position)
         let type: CGEventType
         switch (button, pressed) {
@@ -22,14 +33,16 @@ final class VirtualMouseEventInjector {
         case (2, false): type = .rightMouseUp
         default: type = pressed ? .otherMouseDown : .otherMouseUp
         }
-        guard let event = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: quartzPosition, mouseButton: mouseButton) else { return }
+        guard let event = CGEvent(mouseEventSource: eventSource, mouseType: type, mouseCursorPosition: quartzPosition, mouseButton: mouseButton) else { return false }
         event.setIntegerValueField(.mouseEventButtonNumber, value: Int64(mouseButton.rawValue))
         event.setIntegerValueField(.mouseEventClickState, value: Int64(clickState(for: button, at: position, pressed: pressed)))
-        post(event)
+        SyntheticEventTag.mark(event)
+        return post(event)
     }
 
-    func postDrag(button: Int, at position: CGPoint) {
-        guard CGPreflightPostEventAccess(), let mouseButton = mouseButton(for: button) else { return }
+    @discardableResult
+    func postDrag(button: Int, at position: CGPoint) -> Bool {
+        guard canPostEvents(), let mouseButton = mouseButton(for: button) else { return false }
         let quartzPosition = quartzPoint(from: position)
         let type: CGEventType
         switch button {
@@ -37,28 +50,50 @@ final class VirtualMouseEventInjector {
         case 2: type = .rightMouseDragged
         default: type = .otherMouseDragged
         }
-        guard let event = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: quartzPosition, mouseButton: mouseButton) else { return }
+        guard let event = CGEvent(mouseEventSource: eventSource, mouseType: type, mouseCursorPosition: quartzPosition, mouseButton: mouseButton) else { return false }
         event.setIntegerValueField(.mouseEventButtonNumber, value: Int64(mouseButton.rawValue))
         event.setIntegerValueField(.mouseEventClickState, value: Int64(clickState(for: button, at: position, pressed: false)))
-        post(event)
+        SyntheticEventTag.mark(event)
+        return post(event)
     }
 
-    func postScroll(delta: CGFloat, at position: CGPoint) {
-        guard CGPreflightPostEventAccess(), delta.isFinite, delta != 0 else { return }
-        let boundedDelta = min(max(delta.rounded(), CGFloat(Int32.min)), CGFloat(Int32.max))
-        guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: Int32(boundedDelta), wheel2: 0, wheel3: 0) else { return }
-        event.location = quartzPoint(from: position)
-        post(event)
+    @discardableResult
+    func postScroll(_ input: ScrollInput, at position: CGPoint) -> Bool {
+        guard canPostEvents(), !input.isZero,
+              input.x.isFinite, input.y.isFinite else { return false }
+        let quartzPosition = quartzPoint(from: position)
+        guard let event = scrollEvent(for: input) else { return false }
+        event.location = quartzPosition
+        SyntheticEventTag.mark(event)
+        return post(event)
     }
 
-    private func post(_ event: CGEvent) {
-        let restorePoint = CGEvent(source: nil)?.location
+    private func post(_ event: CGEvent) -> Bool {
+        guard let restorePoint = CGEvent(source: nil)?.location else { return false }
+        let eventPoint = event.location
         event.post(tap: .cghidEventTap)
-        // Quartz events update the system cursor even when their location is synthetic.
-        // Restore the trackpad cursor so the two pointer positions remain independent.
-        if let restorePoint {
+        DispatchQueue.main.async {
+            guard let currentPoint = CGEvent(source: nil)?.location,
+                  hypot(currentPoint.x - eventPoint.x, currentPoint.y - eventPoint.y) <= 0.5 else { return }
             CGWarpMouseCursorPosition(restorePoint)
         }
+        return true
+    }
+
+    private func scrollEvent(for input: ScrollInput) -> CGEvent? {
+        let unit: CGScrollEventUnit = input.unit == .pixel ? .pixel : .line
+        return CGEvent(
+            scrollWheelEvent2Source: eventSource,
+            units: unit,
+            wheelCount: 2,
+            wheel1: boundedInt32(input.y),
+            wheel2: boundedInt32(input.x),
+            wheel3: 0
+        )
+    }
+
+    private func boundedInt32(_ value: CGFloat) -> Int32 {
+        Int32(min(max(value.rounded(), CGFloat(Int32.min)), CGFloat(Int32.max)))
     }
 
     private func quartzPoint(from appKitPoint: CGPoint) -> CGPoint {

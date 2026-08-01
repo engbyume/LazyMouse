@@ -6,7 +6,7 @@ final class HIDInputManager {
     typealias DeviceHandler = ([MouseDevice]) -> Void
     typealias DeltaHandler = (String, CGPoint) -> Void
     typealias ButtonHandler = (String, Int, Bool) -> Void
-    typealias ScrollHandler = (String, CGFloat) -> Void
+    typealias ScrollHandler = (String, ScrollInput) -> Void
 
     var onDevicesChanged: DeviceHandler?
     var onDelta: DeltaHandler?
@@ -24,8 +24,16 @@ final class HIDInputManager {
     private var discoveryOpen = false
     private var discoveryScheduled = false
     private var loggedFirstInput = false
+    private var loggedMissingCandidate = false
+    private var captureSource: OverlayInputSource
 
-    init() {
+    var hasExternalMouse: Bool {
+        guard let currentDevices = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> else { return false }
+        return currentDevices.contains(where: isPhysicalMouse)
+    }
+
+    init(captureSource: OverlayInputSource = .externalMouse) {
+        self.captureSource = captureSource
         manager = IOHIDManagerCreate(kCFAllocatorDefault, 0)
         let matching: [[String: Any]] = [
             [
@@ -44,6 +52,16 @@ final class HIDInputManager {
         stop()
     }
 
+    func setCaptureSource(_ source: OverlayInputSource) {
+        guard source != captureSource else { return }
+        let shouldRestart = started
+        stop()
+        captureSource = source
+        if shouldRestart {
+            start()
+        }
+    }
+
     func start() {
         guard !started else {
             if isExclusive {
@@ -56,6 +74,7 @@ final class HIDInputManager {
 
         started = true
         loggedFirstInput = false
+        loggedMissingCandidate = false
         let context = Unmanaged.passUnretained(self).toOpaque()
         if tryStartExclusiveCapture(context: context) {
             isAvailable = true
@@ -236,14 +255,33 @@ final class HIDInputManager {
         }
 
         guard !seizedDevices.isEmpty else {
+            let visiblePointers = currentDevices.compactMap { device -> String? in
+                let product = stringProperty(kIOHIDProductKey, device: device) ?? "<none>"
+                guard product.localizedCaseInsensitiveContains("mouse")
+                        || product.localizedCaseInsensitiveContains("trackpad") else { return nil }
+                let page = numberProperty(kIOHIDDeviceUsagePageKey, device: device) ?? 0
+                let usage = numberProperty(kIOHIDDeviceUsageKey, device: device) ?? 0
+                let primaryPage = numberProperty(kIOHIDPrimaryUsagePageKey, device: device) ?? 0
+                let primaryUsage = numberProperty(kIOHIDPrimaryUsageKey, device: device) ?? 0
+                let builtIn = numberProperty(kIOHIDBuiltInKey, device: device) ?? 0
+                return "\(product)[page=\(page),usage=\(usage),primary=\(primaryPage)/\(primaryUsage),builtIn=\(builtIn),service=\(registryName(for: device))]"
+            }
+            if !loggedMissingCandidate {
+                loggedMissingCandidate = true
+                logger.error("No exclusive candidate for \(self.captureSource.displayName, privacy: .public). Visible pointing devices: \(visiblePointers.joined(separator: "; "), privacy: .public)")
+            }
             if !isExclusive {
                 closeCapture()
             }
             return false
         }
 
+        let becameExclusive = !isExclusive
         isExclusive = true
-        logger.notice("Exclusive external HID capture active for \(self.seizedDevices.count) HID services")
+        loggedMissingCandidate = false
+        if becameExclusive {
+            logger.notice("Exclusive \(self.captureSource.displayName, privacy: .public) capture active for \(self.seizedDevices.count) HID services")
+        }
         return true
     }
 
@@ -294,12 +332,17 @@ final class HIDInputManager {
         let sorted = devices.values.sorted {
             $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
-        logger.info("Accepted external HID mice: \(sorted.map(\.name).joined(separator: ", "))")
+        logger.info("Accepted overlay input devices: \(sorted.map(\.name).joined(separator: ", "))")
         onDevicesChanged?(Array(sorted.prefix(1)))
     }
 
     private func isPointingDevice(_ device: IOHIDDevice) -> Bool {
-        guard isPhysicalMouse(device) else { return false }
+        switch captureSource {
+        case .externalMouse:
+            guard isPhysicalMouse(device) else { return false }
+        case .builtInTrackpad:
+            guard isBuiltInTrackpadPointer(device) else { return false }
+        }
 
         let usagePage = numberProperty(kIOHIDDeviceUsagePageKey, device: device)
         let usage = numberProperty(kIOHIDDeviceUsageKey, device: device)
@@ -377,6 +420,21 @@ final class HIDInputManager {
         return !product.contains("trackpad") && !product.contains("internal keyboard") && !product.contains("keyboard")
     }
 
+    private func isBuiltInTrackpadPointer(_ device: IOHIDDevice) -> Bool {
+        let builtIn = numberProperty(kIOHIDBuiltInKey, device: device) ?? 0
+        let product = (stringProperty(kIOHIDProductKey, device: device) ?? "").lowercased()
+        guard builtIn != 0, product.contains("trackpad") else { return false }
+
+        let usagePage = numberProperty(kIOHIDDeviceUsagePageKey, device: device)
+        let usage = numberProperty(kIOHIDDeviceUsageKey, device: device)
+        if isPointingUsage(page: usagePage, usage: usage) {
+            return true
+        }
+        let primaryPage = numberProperty(kIOHIDPrimaryUsagePageKey, device: device)
+        let primaryUsage = numberProperty(kIOHIDPrimaryUsageKey, device: device)
+        return isPointingUsage(page: primaryPage, usage: primaryUsage)
+    }
+
     private func numberProperty(_ key: String, device: IOHIDDevice) -> UInt32? {
         (IOHIDDeviceGetProperty(device, (key as NSString) as CFString) as? NSNumber)?.uint32Value
     }
@@ -432,10 +490,6 @@ final class HIDInputManager {
     private static let inputValue: IOHIDValueCallback = { context, _, _, value in
         guard let context else { return }
         let manager = Unmanaged<HIDInputManager>.fromOpaque(context).takeUnretainedValue()
-        if !manager.loggedFirstInput {
-            manager.loggedFirstInput = true
-            manager.logger.info("HID input callback active")
-        }
         let element = IOHIDValueGetElement(value)
         let page = IOHIDElementGetUsagePage(element)
         let usage = IOHIDElementGetUsage(element)
@@ -448,6 +502,11 @@ final class HIDInputManager {
             manager.addIfPointing(device)
             guard let newDeviceID = manager.deviceIDs[key] else { return }
             deviceID = newDeviceID
+        }
+        guard manager.isExclusive else { return }
+        if !manager.loggedFirstInput {
+            manager.loggedFirstInput = true
+            manager.logger.info("HID input callback active")
         }
         manager.routeInput(deviceID: deviceID, page: page, usage: usage, value: value)
     }
@@ -467,7 +526,18 @@ final class HIDInputManager {
         }
 
         if page == kHIDPage_GenericDesktop, usage == kHIDUsage_GD_Wheel {
-            onScroll?(deviceID, CGFloat(IOHIDValueGetIntegerValue(value)))
+            onScroll?(
+                deviceID,
+                ScrollInput(x: 0, y: CGFloat(IOHIDValueGetIntegerValue(value)), unit: .line)
+            )
+            return
+        }
+
+        if page == kHIDPage_Consumer, usage == 0x0238 {
+            onScroll?(
+                deviceID,
+                ScrollInput(x: CGFloat(IOHIDValueGetIntegerValue(value)), y: 0, unit: .line)
+            )
         }
     }
 }

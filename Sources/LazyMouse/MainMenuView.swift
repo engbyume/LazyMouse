@@ -15,14 +15,33 @@ struct MainMenuView: View {
                     .font(.headline)
                 Spacer()
                 Circle()
-                    .fill(state.separateCursorEnabled ? (state.hidExclusive ? .green : .orange) : .gray)
+                    .fill(state.separateCursorEnabled ? (isolationReady ? .green : .orange) : .gray)
                     .frame(width: 8, height: 8)
             }
 
-            Toggle("Separate external-mouse cursor", isOn: Binding(
+            Toggle("Separate overlay cursor", isOn: Binding(
                 get: { state.separateCursorEnabled },
                 set: { state.setSeparateCursorEnabled($0) }
             ))
+
+            Button("Swap mouse and trackpad") {
+                state.swapCursorAssignments()
+            }
+            .disabled(!state.separateCursorEnabled || !state.externalMouseAvailable)
+            .help("Exchange which device controls the red cursor and regular cursor")
+
+            VStack(alignment: .leading, spacing: 6) {
+                assignmentRow(
+                    title: "Red cursor",
+                    device: state.overlayInputSource.displayName,
+                    color: state.cursorColor.nsColor
+                )
+                assignmentRow(
+                    title: "Regular cursor",
+                    device: state.overlayInputSource.other.displayName,
+                    color: .labelColor
+                )
+            }
 
             HStack {
                 Text("Cursor color")
@@ -31,7 +50,7 @@ struct MainMenuView: View {
                     state.setCursorColor(color)
                 }
                 .frame(width: 28, height: 22)
-                .help("Choose the external cursor color")
+                .help("Choose the overlay cursor color")
             }
 
             Text(modeDescription)
@@ -83,9 +102,24 @@ struct MainMenuView: View {
                 .controlSize(.small)
             }
 
+            if state.separateCursorEnabled {
+                Label(
+                    state.postEventsAvailable ? "Overlay interaction ready" : "Overlay interaction needs Accessibility",
+                    systemImage: state.postEventsAvailable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(state.postEventsAvailable ? .green : .orange)
+            }
+
+            if state.separateCursorEnabled && state.overlayInputSource == .builtInTrackpad && !state.trackpadIsolationActive {
+                Label("Trackpad isolation unavailable", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
             Divider()
             HStack {
-                Button("Rescan mice") { state.rescanDevices() }
+                Button("Rescan devices") { state.rescanDevices() }
                     .controlSize(.small)
                 Button("Refresh displays") { state.refreshDisplays() }
                     .controlSize(.small)
@@ -99,15 +133,20 @@ struct MainMenuView: View {
     }
 
     private var modeDescription: String {
-        state.separateCursorEnabled
-            ? "The external mouse uses the overlay; the trackpad keeps the normal cursor."
-            : "The mouse and trackpad both use the normal macOS cursor."
+        guard state.separateCursorEnabled else {
+            return "The mouse and trackpad both use the normal macOS cursor."
+        }
+        return "Each device moves, clicks, right-clicks, drags, and scrolls only its assigned cursor."
     }
 
     private var statusText: String {
         if !state.separateCursorEnabled { return "Single cursor mode" }
         if state.devices.isEmpty { return "No external mouse detected" }
-        return state.hidExclusive ? "External mouse isolated" : "Mouse detected; capture unavailable"
+        if !state.hidExclusive { return "Mouse detected; capture unavailable" }
+        if state.overlayInputSource == .builtInTrackpad {
+            return state.trackpadIsolationActive ? "Cursor controls swapped" : "Trackpad capture unavailable"
+        }
+        return "External mouse isolated"
     }
 
     private var emptyStateText: String {
@@ -115,9 +154,29 @@ struct MainMenuView: View {
             return "Turn on separate cursor mode to use the external mouse independently."
         }
         if state.hidAvailable {
-            return "Connect the external mouse, then rescan. The built-in trackpad stays with the normal cursor."
+            return "Connect or enable the external mouse, then rescan."
         }
         return "LazyMouse could not open the HID manager. Check Input Monitoring permission, then rescan."
+    }
+
+    private var isolationReady: Bool {
+        state.hidExclusive
+            && (state.overlayInputSource == .externalMouse || state.trackpadIsolationActive)
+            && state.postEventsAvailable
+    }
+
+    private func assignmentRow(title: String, device: String, color: NSColor) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "cursorarrow")
+                .foregroundStyle(Color(nsColor: color))
+                .frame(width: 16)
+            Text(title)
+                .font(.caption.weight(.semibold))
+            Spacer()
+            Text(device)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 
