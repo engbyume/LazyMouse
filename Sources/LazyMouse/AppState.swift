@@ -131,6 +131,7 @@ final class AppState: ObservableObject {
                 )
             ]
         }
+        guard dualCursorActive else { return [] }
         return [CursorVisual(
             id: device.id,
             color: cursorColor,

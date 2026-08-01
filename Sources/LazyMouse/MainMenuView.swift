@@ -145,7 +145,7 @@ struct MainMenuView: View {
         if !state.hidExclusive { return "Mouse detected; capture unavailable" }
         if !state.dualCursorActive { return "Mouse detected; cursor isolation unavailable" }
         if state.overlayInputSource == .builtInTrackpad {
-            return state.trackpadIsolationActive ? "Cursor controls swapped" : "Trackpad capture unavailable"
+            return "Cursor controls swapped"
         }
         return "External mouse isolated"
     }

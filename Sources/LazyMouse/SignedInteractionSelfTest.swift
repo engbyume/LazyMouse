@@ -133,6 +133,7 @@ final class SignedInteractionSelfTest {
             && trackpadMoveWorked
             && trackpadButtonEvents == 2
             && trackpadScrollWorked
+            && postResults.count == 14
             && !postResults.contains(false)
         let result = "SIGNED_INTERACTION_SELF_TEST \(passed ? "PASS" : "FAIL") postAccess=\(CGPreflightPostEventAccess()) cursorStable=\(cursorStable) trackpadMove=\(trackpadMoveWorked) trackpadButtons=\(trackpadButtonEvents) trackpadScroll=\(trackpadScrollWorked) dualCursorPosts=\(postResults)"
         try? Data("\(result)\n".utf8).write(
