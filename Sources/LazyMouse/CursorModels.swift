@@ -1,6 +1,25 @@
 import AppKit
 import Foundation
 
+enum OverlayInputSource: String, CaseIterable {
+    case externalMouse
+    case builtInTrackpad
+
+    var displayName: String {
+        switch self {
+        case .externalMouse: return "External mouse"
+        case .builtInTrackpad: return "Built-in trackpad"
+        }
+    }
+
+    var other: OverlayInputSource {
+        switch self {
+        case .externalMouse: return .builtInTrackpad
+        case .builtInTrackpad: return .externalMouse
+        }
+    }
+}
+
 struct CursorColor: Hashable, Identifiable {
     let red: CGFloat
     let green: CGFloat

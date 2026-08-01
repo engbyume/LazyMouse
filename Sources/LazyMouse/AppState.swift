@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import LazyMouseCore
+import OSLog
 
 @MainActor
 final class AppState: ObservableObject {
@@ -12,17 +13,27 @@ final class AppState: ObservableObject {
     @Published private(set) var postEventsAvailable = CGPreflightPostEventAccess()
     @Published private(set) var separateCursorEnabled = UserDefaults.standard.object(forKey: "separateCursorEnabled") as? Bool ?? true
     @Published private(set) var cursorColor = CursorColor(hex: UserDefaults.standard.string(forKey: "cursorColor") ?? "") ?? .red
+    @Published private(set) var overlayInputSource = OverlayInputSource.externalMouse
+    @Published private(set) var externalMouseAvailable = false
 
-    private let hid = HIDInputManager()
+    private let hid: HIDInputManager
     private let overlay = CursorOverlayController()
     private let eventInjector = VirtualMouseEventInjector()
     private let catalog = DisplayCatalog()
+    private let logger = Logger(subsystem: "com.engbyume.LazyMouse", category: "State")
     private var boundaries: [String: CursorBoundary] = [:]
     private var pressedButtons: [String: Set<Int>] = [:]
+    private var loggedOverlayMotion = false
+    private var loggedOverlayButton = false
+    private var loggedOverlayDrag = false
+    private var loggedOverlayScroll = false
     private var refreshTimer: Timer?
     private var shutdownCoordinator: ShutdownCoordinator?
 
     init() {
+        let preferredSource = UserDefaults.standard.string(forKey: "overlayInputSource")
+            .flatMap(OverlayInputSource.init(rawValue:)) ?? .externalMouse
+        hid = HIDInputManager(captureSource: .externalMouse)
         refreshDisplays()
         hid.onDevicesChanged = { [weak self] devices in
             DispatchQueue.main.async { self?.setDevices(devices) }
@@ -43,8 +54,16 @@ final class AppState: ObservableObject {
             hid.start()
             hidAvailable = hid.isAvailable
             hidExclusive = hid.isExclusive
+            externalMouseAvailable = hid.hasExternalMouse
+            logger.notice("Startup overlay preference: \(preferredSource.displayName, privacy: .public); external mouse available: \(self.externalMouseAvailable)")
+            if preferredSource == .builtInTrackpad && externalMouseAvailable {
+                swapCursorAssignments()
+            } else if preferredSource == .builtInTrackpad {
+                UserDefaults.standard.set(OverlayInputSource.externalMouse.rawValue, forKey: "overlayInputSource")
+            }
         }
         shutdownCoordinator = ShutdownCoordinator(state: self)
+        logger.notice("Overlay interaction access available: \(self.postEventsAvailable)")
         overlay.refreshScreens()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
@@ -53,6 +72,11 @@ final class AppState: ObservableObject {
                 self.hid.retryExclusiveCapture()
                 self.hidAvailable = self.hid.isAvailable
                 self.hidExclusive = self.hid.isExclusive
+                self.externalMouseAvailable = self.hid.hasExternalMouse
+                self.refreshPostEventsAvailability()
+                if self.overlayInputSource == .builtInTrackpad && !self.externalMouseAvailable {
+                    self.swapCursorAssignments()
+                }
                 self.overlay.update(cursors: self.cursorVisuals)
             }
         }
@@ -122,6 +146,7 @@ final class AppState: ObservableObject {
             hid.start()
             hidAvailable = hid.isAvailable
             hidExclusive = hid.isExclusive
+            externalMouseAvailable = hid.hasExternalMouse
             hid.rescan()
             return
         }
@@ -133,7 +158,30 @@ final class AppState: ObservableObject {
         boundaries = [:]
         hidAvailable = false
         hidExclusive = false
+        externalMouseAvailable = hid.hasExternalMouse
         overlay.update(cursors: [])
+    }
+
+    func swapCursorAssignments() {
+        guard separateCursorEnabled else { return }
+        guard overlayInputSource == .builtInTrackpad || hid.hasExternalMouse else { return }
+        releasePressedButtons()
+        overlayInputSource = overlayInputSource.other
+        UserDefaults.standard.set(overlayInputSource.rawValue, forKey: "overlayInputSource")
+        devices = []
+        cursors = [:]
+        boundaries = [:]
+        loggedOverlayMotion = false
+        loggedOverlayButton = false
+        loggedOverlayDrag = false
+        loggedOverlayScroll = false
+        hid.setCaptureSource(overlayInputSource)
+        hidAvailable = hid.isAvailable
+        hidExclusive = hid.isExclusive
+        externalMouseAvailable = hid.hasExternalMouse
+        hid.rescan()
+        overlay.update(cursors: cursorVisuals)
+        logger.notice("Overlay input changed to \(self.overlayInputSource.displayName, privacy: .public); exclusive capture: \(self.hidExclusive)")
     }
 
     func refreshDisplays() {
@@ -175,6 +223,7 @@ final class AppState: ObservableObject {
         self.devices = selectedDevices
         hidAvailable = hid.isAvailable
         hidExclusive = hid.isExclusive
+        externalMouseAvailable = hid.hasExternalMouse
         let defaultPoint = NSScreen.main?.frame.midPoint ?? CGPoint(x: 300, y: 300)
         for device in selectedDevices where cursors[device.id] == nil {
             cursors[device.id] = defaultPoint
@@ -196,8 +245,15 @@ final class AppState: ObservableObject {
             boundary: boundary(forID: deviceID),
             displays: catalog.coreDisplays()
         )
+        if !loggedOverlayMotion {
+            loggedOverlayMotion = true
+            logger.notice("Overlay movement received from \(self.overlayInputSource.displayName, privacy: .public)")
+        }
         for button in pressedButtons[deviceID] ?? [] {
-            eventInjector.postDrag(button: button, at: cursors[deviceID] ?? point)
+            if eventInjector.postDrag(button: button, at: cursors[deviceID] ?? point), !loggedOverlayDrag {
+                loggedOverlayDrag = true
+                logger.notice("Overlay drag event posted")
+            }
         }
         overlay.update(cursors: cursorVisuals)
     }
@@ -210,14 +266,20 @@ final class AppState: ObservableObject {
         } else {
             pressedButtons[deviceID, default: []].remove(button)
         }
-        eventInjector.postButton(button: button, pressed: pressed, at: point)
+        if eventInjector.postButton(button: button, pressed: pressed, at: point), !loggedOverlayButton {
+            loggedOverlayButton = true
+            logger.notice("Overlay button event posted")
+        }
         refreshPostEventsAvailability()
     }
 
     private func scroll(deviceID: String, delta: CGFloat) {
         guard separateCursorEnabled else { return }
         guard let point = cursors[deviceID] else { return }
-        eventInjector.postScroll(delta: delta, at: point)
+        if eventInjector.postScroll(delta: delta, at: point), !loggedOverlayScroll {
+            loggedOverlayScroll = true
+            logger.notice("Overlay scroll event posted")
+        }
         refreshPostEventsAvailability()
     }
 

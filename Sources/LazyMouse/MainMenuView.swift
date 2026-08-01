@@ -19,10 +19,24 @@ struct MainMenuView: View {
                     .frame(width: 8, height: 8)
             }
 
-            Toggle("Separate external-mouse cursor", isOn: Binding(
+            Toggle("Separate overlay cursor", isOn: Binding(
                 get: { state.separateCursorEnabled },
                 set: { state.setSeparateCursorEnabled($0) }
             ))
+
+            Button("Swap cursor controls") {
+                state.swapCursorAssignments()
+            }
+            .disabled(!state.separateCursorEnabled || !state.externalMouseAvailable)
+            .help("Switch which device controls the overlay and normal macOS cursor")
+
+            HStack {
+                Label("Overlay: \(state.overlayInputSource.displayName)", systemImage: "cursorarrow.motionlines")
+                Spacer()
+                Text("macOS: \(state.overlayInputSource.other.displayName)")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
 
             HStack {
                 Text("Cursor color")
@@ -83,9 +97,18 @@ struct MainMenuView: View {
                 .controlSize(.small)
             }
 
+            if state.separateCursorEnabled {
+                Label(
+                    state.postEventsAvailable ? "Overlay interaction ready" : "Overlay interaction needs Accessibility",
+                    systemImage: state.postEventsAvailable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(state.postEventsAvailable ? .green : .orange)
+            }
+
             Divider()
             HStack {
-                Button("Rescan mice") { state.rescanDevices() }
+                Button("Rescan devices") { state.rescanDevices() }
                     .controlSize(.small)
                 Button("Refresh displays") { state.refreshDisplays() }
                     .controlSize(.small)
@@ -99,15 +122,16 @@ struct MainMenuView: View {
     }
 
     private var modeDescription: String {
-        state.separateCursorEnabled
-            ? "The external mouse uses the overlay; the trackpad keeps the normal cursor."
-            : "The mouse and trackpad both use the normal macOS cursor."
+        guard state.separateCursorEnabled else {
+            return "The mouse and trackpad both use the normal macOS cursor."
+        }
+        return "\(state.overlayInputSource.displayName) uses the overlay; \(state.overlayInputSource.other.displayName.lowercased()) keeps the normal cursor."
     }
 
     private var statusText: String {
         if !state.separateCursorEnabled { return "Single cursor mode" }
-        if state.devices.isEmpty { return "No external mouse detected" }
-        return state.hidExclusive ? "External mouse isolated" : "Mouse detected; capture unavailable"
+        if state.devices.isEmpty { return "No \(state.overlayInputSource.displayName.lowercased()) detected" }
+        return state.hidExclusive ? "\(state.overlayInputSource.displayName) isolated" : "Device detected; capture unavailable"
     }
 
     private var emptyStateText: String {
@@ -115,7 +139,7 @@ struct MainMenuView: View {
             return "Turn on separate cursor mode to use the external mouse independently."
         }
         if state.hidAvailable {
-            return "Connect the external mouse, then rescan. The built-in trackpad stays with the normal cursor."
+            return "Connect or enable the \(state.overlayInputSource.displayName.lowercased()), then rescan."
         }
         return "LazyMouse could not open the HID manager. Check Input Monitoring permission, then rescan."
     }

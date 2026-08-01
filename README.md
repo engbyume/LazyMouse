@@ -4,7 +4,7 @@
   <img src="assets/AppIcon.svg" alt="LazyMouse logo showing two overlapping mice" width="180">
 </p>
 
-LazyMouse is a macOS menu bar utility for showing one customizable cursor overlay for one external physical mouse. The overlay uses the native macOS arrow shape at a slightly larger scale. The built-in trackpad remains attached to the normal macOS cursor, while the external mouse moves the overlay cursor.
+LazyMouse is a macOS menu bar utility for showing one customizable cursor overlay. The overlay uses the native macOS arrow shape at a slightly larger scale and can click, double-click, drag, right-click, and scroll. By default, the built-in trackpad remains attached to the normal macOS cursor while the external mouse moves the overlay. The **Swap cursor controls** button reverses those assignments.
 
 ## Requirements
 
@@ -13,7 +13,7 @@ LazyMouse is a macOS menu bar utility for showing one customizable cursor overla
 - An external mouse exposed by macOS as a standard Generic Desktop Mouse HID device
 - A stable code-signing identity for local packaging, so macOS can retain Input Monitoring authorization across rebuilds
 
-LazyMouse enumerates standard Generic Desktop Mouse devices, rejects built-in devices and trackpads, then seizes the selected external mouse so macOS does not also move the regular cursor. This covers the connected USB, Bluetooth, or receiver-based mouse without treating the built-in trackpad as a second cursor. The menu includes a persisted separate-cursor toggle, a cursor-color picker, and virtual clicks, drags, and scrolling for the overlay cursor.
+LazyMouse enumerates standard Generic Desktop pointer devices, then seizes only the device assigned to the overlay so it does not also move the regular cursor. This covers the connected USB, Bluetooth, or receiver-based mouse and the built-in trackpad pointer service. The menu includes a persisted separate-cursor toggle, a cursor-color picker, interactive overlay clicks, drags, and scrolling, plus a persisted assignment swap. If the external mouse disconnects while the trackpad owns the overlay, LazyMouse immediately releases the trackpad back to the normal macOS cursor.
 
 ## Run from source
 
@@ -23,6 +23,8 @@ swift run LazyMouse
 ```
 
 HID discovery and exclusive mouse capture may require **System Settings > Privacy & Security > Input Monitoring** on the current macOS configuration; LazyMouse includes a shortcut to that pane when no device is visible. If the Bluetooth mouse was connected before LazyMouse started, use **Rescan mice** in the menu. With one display, assign the mouse to **Free - all displays**. The app does not claim notarization and should be treated as a locally built developer utility.
+
+Overlay interaction requires **System Settings > Privacy & Security > Accessibility**. Use **Request Click Access** in the LazyMouse menu if clicks, drags, or scrolling are unavailable, then relaunch LazyMouse after enabling it.
 
 ## Build and install the macOS app
 
@@ -44,10 +46,10 @@ The script uses the ignored `.build` directory for temporary packaging output an
 
 The current local verification passes include:
 
-- `swift test`: 8 tests passed.
+- `swift test`: 11 tests passed.
 - `git diff --check`: passed.
 - `./build_app.sh`: release build, stable signing, bundle verification, and install passed.
 - Installed bundle: `/Applications/LazyMouse.app`.
 - The app bundle uses the stable `LazyMouse Local Development` signature so Input Monitoring can persist across rebuilds.
 
-After launch, the menu-bar status should read **External mouse isolated** when the external mouse is captured. The built-in trackpad remains assigned to the normal macOS cursor.
+After launch, the menu-bar status should read **External mouse isolated** when the external mouse is captured. Use **Swap cursor controls** to assign the built-in trackpad to the overlay and the external mouse to the normal macOS cursor. LazyMouse remembers the assignment only when the external mouse is available and automatically returns the trackpad to the normal cursor if that mouse disconnects.

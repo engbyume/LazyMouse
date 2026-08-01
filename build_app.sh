@@ -106,7 +106,7 @@ cat > "$APP_PATH/Contents/Info.plist" <<PLIST
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSInputMonitoringUsageDescription</key>
-    <string>LazyMouse needs mouse input access to move the separate external-mouse cursor while leaving the built-in trackpad unchanged.</string>
+    <string>LazyMouse needs pointing-device input access to keep the overlay cursor independent from the normal macOS cursor.</string>
 </dict>
 </plist>
 PLIST
