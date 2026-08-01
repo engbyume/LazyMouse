@@ -124,7 +124,7 @@ struct MainMenuView: View {
                 Button("Refresh displays") { state.refreshDisplays() }
                     .controlSize(.small)
                 Spacer()
-                Button("Quit") { NSApplication.shared.terminate(nil) }
+                Button("Quit") { AppTermination.request() }
                     .controlSize(.small)
             }
         }
