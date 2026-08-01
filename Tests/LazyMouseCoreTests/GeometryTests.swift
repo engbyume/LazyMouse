@@ -68,9 +68,9 @@ final class GeometryTests: XCTestCase {
     func testQuartzPointPreservesDisplayOffsets() {
         let result = MouseEventGeometry.quartzPoint(
             from: CGPoint(x: -40, y: 1100),
-            appKitPrimaryFrame: CGRect(x: 0, y: 0, width: 1512, height: 982),
-            quartzPrimaryBounds: CGRect(x: 0, y: 0, width: 1512, height: 982)
+            appKitPrimaryFrame: CGRect(x: 10, y: 20, width: 1512, height: 982),
+            quartzPrimaryBounds: CGRect(x: 5, y: 0, width: 1512, height: 982)
         )
-        XCTAssertEqual(result, CGPoint(x: -40, y: -118))
+        XCTAssertEqual(result, CGPoint(x: -45, y: -98))
     }
 }

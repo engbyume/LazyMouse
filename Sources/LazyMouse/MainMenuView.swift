@@ -8,7 +8,10 @@ struct MainMenuView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("LazyMouse", image: "AppIcon")
+                Image(nsImage: LazyMouseBranding.appIconImage)
+                    .renderingMode(.original)
+                    .frame(width: 24, height: 24)
+                Text("LazyMouse")
                     .font(.headline)
                 Spacer()
                 Circle()
@@ -26,9 +29,7 @@ struct MainMenuView: View {
                 set: { state.setCursorColor(NSColor($0)) }
             ), supportsOpacity: false)
 
-            Text(state.separateCursorEnabled
-                 ? "The external mouse uses the overlay; the trackpad keeps the normal cursor."
-                 : "The mouse and trackpad both use the normal macOS cursor.")
+            Text(modeDescription)
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -46,13 +47,7 @@ struct MainMenuView: View {
 
             Divider()
             HStack {
-                Text(!state.separateCursorEnabled
-                     ? "Single cursor mode"
-                     : state.devices.isEmpty
-                     ? "No external mouse detected"
-                     : state.hidExclusive
-                     ? "External mouse isolated"
-                     : "Mouse detected; capture unavailable")
+                Text(statusText)
                     .font(.subheadline.weight(.semibold))
                 Spacer()
                 Button { state.rescanDevices() } label: {
@@ -63,11 +58,7 @@ struct MainMenuView: View {
             }
 
             if state.devices.isEmpty {
-                Text(!state.separateCursorEnabled
-                     ? "Turn on separate cursor mode to use the external mouse independently."
-                     : state.hidAvailable
-                     ? "Connect the external mouse, then rescan. The built-in trackpad stays with the normal cursor."
-                     : "LazyMouse could not open the HID manager. Check Input Monitoring permission, then rescan.")
+                Text(emptyStateText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else if state.separateCursorEnabled && !state.hidExclusive {
@@ -100,6 +91,28 @@ struct MainMenuView: View {
         }
         .padding(16)
         .frame(width: 360)
+    }
+
+    private var modeDescription: String {
+        state.separateCursorEnabled
+            ? "The external mouse uses the overlay; the trackpad keeps the normal cursor."
+            : "The mouse and trackpad both use the normal macOS cursor."
+    }
+
+    private var statusText: String {
+        if !state.separateCursorEnabled { return "Single cursor mode" }
+        if state.devices.isEmpty { return "No external mouse detected" }
+        return state.hidExclusive ? "External mouse isolated" : "Mouse detected; capture unavailable"
+    }
+
+    private var emptyStateText: String {
+        if !state.separateCursorEnabled {
+            return "Turn on separate cursor mode to use the external mouse independently."
+        }
+        if state.hidAvailable {
+            return "Connect the external mouse, then rescan. The built-in trackpad stays with the normal cursor."
+        }
+        return "LazyMouse could not open the HID manager. Check Input Monitoring permission, then rescan."
     }
 }
 

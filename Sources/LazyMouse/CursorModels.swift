@@ -32,11 +32,11 @@ struct CursorColor: Hashable, Identifiable {
     var id: String { hex }
 
     var hex: String {
-        String(format: "%02X%02X%02X", Int(red * 255), Int(green * 255), Int(blue * 255))
+        String(format: "%02X%02X%02X", Int((red * 255).rounded()), Int((green * 255).rounded()), Int((blue * 255).rounded()))
     }
 
     var nsColor: NSColor {
-        NSColor(calibratedRed: red, green: green, blue: blue, alpha: alpha)
+        NSColor(srgbRed: red, green: green, blue: blue, alpha: alpha)
     }
 
     static let red = CursorColor(red: 0.95, green: 0.08, blue: 0.12)

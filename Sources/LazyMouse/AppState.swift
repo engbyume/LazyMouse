@@ -58,6 +58,7 @@ final class AppState: ObservableObject {
     func shutdown() {
         refreshTimer?.invalidate()
         refreshTimer = nil
+        releasePressedButtons()
         hid.stop()
         overlay.close()
         shutdownCoordinator = nil
@@ -122,13 +123,7 @@ final class AppState: ObservableObject {
             return
         }
 
-        for (deviceID, buttons) in pressedButtons {
-            guard let point = cursors[deviceID] else { continue }
-            for button in buttons {
-                eventInjector.postButton(button: button, pressed: false, at: point)
-            }
-        }
-        pressedButtons.removeAll()
+        releasePressedButtons()
         hid.stop()
         devices = []
         cursors = [:]
@@ -171,6 +166,8 @@ final class AppState: ObservableObject {
     private func setDevices(_ devices: [MouseDevice]) {
         let selectedDevices = Array(devices.prefix(1))
         self.devices = selectedDevices
+        hidAvailable = hid.isAvailable
+        hidExclusive = hid.isExclusive
         let defaultPoint = NSScreen.main?.frame.midPoint ?? CGPoint(x: 300, y: 300)
         for device in selectedDevices where cursors[device.id] == nil {
             cursors[device.id] = defaultPoint
@@ -207,14 +204,31 @@ final class AppState: ObservableObject {
             pressedButtons[deviceID, default: []].remove(button)
         }
         eventInjector.postButton(button: button, pressed: pressed, at: point)
-        postEventsAvailable = CGPreflightPostEventAccess()
+        refreshPostEventsAvailability()
     }
 
     private func scroll(deviceID: String, delta: CGFloat) {
         guard separateCursorEnabled else { return }
         guard let point = cursors[deviceID] else { return }
         eventInjector.postScroll(delta: delta, at: point)
-        postEventsAvailable = CGPreflightPostEventAccess()
+        refreshPostEventsAvailability()
+    }
+
+    private func releasePressedButtons() {
+        for (deviceID, buttons) in pressedButtons {
+            guard let point = cursors[deviceID] else { continue }
+            for button in buttons {
+                eventInjector.postButton(button: button, pressed: false, at: point)
+            }
+        }
+        pressedButtons.removeAll()
+    }
+
+    private func refreshPostEventsAvailability() {
+        let available = CGPreflightPostEventAccess()
+        if postEventsAvailable != available {
+            postEventsAvailable = available
+        }
     }
 
     private func boundary(forID id: String) -> CursorBoundary {

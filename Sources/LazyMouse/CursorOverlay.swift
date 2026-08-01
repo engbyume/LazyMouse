@@ -4,10 +4,12 @@ import AppKit
 final class CursorOverlayController {
     private var windows: [UInt32: NSWindow] = [:]
     private var views: [UInt32: CursorOverlayView] = [:]
+    private var screenFrames: [UInt32: CGRect] = [:]
 
     func refreshScreens() {
         let screens = NSScreen.screens
         let currentIDs = Set(screens.compactMap { displayID(for: $0) })
+        screenFrames = [:]
         for id in Set(windows.keys).subtracting(currentIDs) {
             windows[id]?.orderOut(nil)
             windows.removeValue(forKey: id)
@@ -15,6 +17,7 @@ final class CursorOverlayController {
         }
         for screen in screens {
             guard let id = displayID(for: screen) else { continue }
+            screenFrames[id] = screen.frame
             if let window = windows[id] {
                 window.setFrame(screen.frame, display: true)
                 views[id]?.setGlobalOrigin(screen.frame.origin)
@@ -42,11 +45,9 @@ final class CursorOverlayController {
     }
 
     func update(cursors: [CursorVisual]) {
-        refreshScreens()
         for (id, view) in views {
             view.cursors = cursors.filter { cursor in
-                guard let screen = NSScreen.screens.first(where: { displayID(for: $0) == id }) else { return false }
-                return screen.frame.insetBy(dx: -80, dy: -80).contains(cursor.position)
+                screenFrames[id]?.insetBy(dx: -80, dy: -80).contains(cursor.position) == true
             }
             view.needsDisplay = true
         }
@@ -56,6 +57,7 @@ final class CursorOverlayController {
         windows.values.forEach { $0.orderOut(nil) }
         windows.removeAll()
         views.removeAll()
+        screenFrames.removeAll()
     }
 
     private func displayID(for screen: NSScreen) -> UInt32? {
@@ -90,12 +92,14 @@ final class CursorOverlayView: NSView {
     }
 
     private func drawCursor(_ cursor: CursorVisual, at point: CGPoint) {
-        let image = NSCursor.arrow.image
+        let arrow = NSCursor.arrow
+        let image = arrow.image
+        let hotSpot = arrow.hotSpot
         let scale = max(cursor.scale, 1.0)
         let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
         let origin = CGPoint(
-            x: point.x - NSCursor.arrow.hotSpot.x * scale,
-            y: point.y - (image.size.height - NSCursor.arrow.hotSpot.y) * scale
+            x: point.x - hotSpot.x * scale,
+            y: point.y - (image.size.height - hotSpot.y) * scale
         )
         let rect = NSRect(origin: origin, size: size)
 

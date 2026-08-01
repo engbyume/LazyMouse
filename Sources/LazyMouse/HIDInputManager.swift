@@ -23,6 +23,8 @@ final class HIDInputManager {
     private var started = false
     private var discoveryOpen = false
     private var discoveryScheduled = false
+    private var exclusiveLifecycleOpen = false
+    private var exclusiveLifecycleScheduled = false
     private var loggedFirstInput = false
 
     init() {
@@ -95,7 +97,6 @@ final class HIDInputManager {
         closeDiscovery()
         devices.removeAll()
         deviceIDs.removeAll()
-        notifyDevices()
 
         let context = Unmanaged.passUnretained(self).toOpaque()
         if tryStartExclusiveCapture(context: context) {
@@ -104,6 +105,9 @@ final class HIDInputManager {
             _ = startDiscovery(context: context)
         }
         rescan()
+        if devices.isEmpty {
+            notifyDevices()
+        }
     }
 
     func stop() {
@@ -156,6 +160,7 @@ final class HIDInputManager {
     }
 
     private func closeCapture() {
+        closeExclusiveLifecycle()
         for device in seizedDevices.values {
             IOHIDDeviceRegisterInputValueCallback(device, nil, nil)
             IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
@@ -167,6 +172,9 @@ final class HIDInputManager {
 
     private func addIfPointing(_ device: IOHIDDevice) {
         guard isPointingDevice(device) else { return }
+        if seizedDevices[ObjectIdentifier(device)] == nil && (exclusiveLifecycleScheduled || !seizedDevices.isEmpty) {
+            return
+        }
         add(device)
     }
 
@@ -191,17 +199,29 @@ final class HIDInputManager {
             return false
         }
 
-        for device in currentDevices where isPointingDevice(device) {
-            let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
-            guard result == kIOReturnSuccess else {
-                logger.error("Exclusive HID capture unavailable for one device: \(result)")
-                continue
+        let candidates = currentDevices
+            .filter(isPointingDevice)
+            .reduce(into: [String: [IOHIDDevice]]()) { result, device in
+                result[stableID(for: device), default: []].append(device)
             }
 
-            seizedDevices[ObjectIdentifier(device)] = device
-            addIfPointing(device)
-            IOHIDDeviceRegisterInputValueCallback(device, Self.inputValue, context)
-            IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        var captured = false
+        for (_, devicesForID) in candidates.sorted(by: { $0.key < $1.key }) {
+            for device in devicesForID {
+                let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
+                guard result == kIOReturnSuccess else {
+                    logger.error("Exclusive HID capture unavailable for one device: \(result)")
+                    continue
+                }
+
+                seizedDevices[ObjectIdentifier(device)] = device
+                addIfPointing(device)
+                IOHIDDeviceRegisterInputValueCallback(device, Self.inputValue, context)
+                IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+                captured = true
+                break
+            }
+            if captured { break }
         }
 
         guard !seizedDevices.isEmpty else {
@@ -210,17 +230,57 @@ final class HIDInputManager {
         }
 
         isExclusive = true
+        startExclusiveLifecycle(context: context)
         logger.info("Exclusive external HID capture active for \(self.seizedDevices.count) HID services")
         return true
     }
 
     private func remove(_ device: IOHIDDevice) {
         let key = ObjectIdentifier(device)
+        let wasSeized = seizedDevices.removeValue(forKey: key) != nil
+        if wasSeized {
+            IOHIDDeviceRegisterInputValueCallback(device, nil, nil)
+            IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+            IOHIDDeviceClose(device, 0)
+            if seizedDevices.isEmpty {
+                isExclusive = false
+                logger.info("Exclusive HID device removed; waiting for a replacement")
+            }
+        }
         if let id = deviceIDs.removeValue(forKey: key) {
             if !deviceIDs.values.contains(id) {
                 devices.removeValue(forKey: id)
             }
             notifyDevices()
+        }
+    }
+
+    private func startExclusiveLifecycle(context: UnsafeMutableRawPointer) {
+        guard !exclusiveLifecycleScheduled else { return }
+        IOHIDManagerRegisterDeviceMatchingCallback(manager, Self.deviceAdded, context)
+        IOHIDManagerRegisterDeviceRemovalCallback(manager, Self.deviceRemoved, context)
+        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        exclusiveLifecycleScheduled = true
+
+        let result = IOHIDManagerOpen(manager, 0)
+        guard result == kIOReturnSuccess else {
+            logger.error("HID lifecycle manager open failed: \(result)")
+            closeExclusiveLifecycle()
+            return
+        }
+        exclusiveLifecycleOpen = true
+    }
+
+    private func closeExclusiveLifecycle() {
+        IOHIDManagerRegisterDeviceMatchingCallback(manager, nil, nil)
+        IOHIDManagerRegisterDeviceRemovalCallback(manager, nil, nil)
+        if exclusiveLifecycleScheduled {
+            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+            exclusiveLifecycleScheduled = false
+        }
+        if exclusiveLifecycleOpen {
+            IOHIDManagerClose(manager, 0)
+            exclusiveLifecycleOpen = false
         }
     }
 
@@ -282,10 +342,8 @@ final class HIDInputManager {
             return "location-\(vendor)-\(product)-\(location)"
         }
 
-        // A registry object identity is the safest fallback for two identical
-        // BLE mice that expose neither serial nor location information.
-        let objectPart = UInt(bitPattern: ObjectIdentifier(device).hashValue)
-        return "device-\(vendor)-\(product)-\(sanitized(transport))-\(objectPart)"
+        let productName = sanitized(stringProperty(kIOHIDProductKey, device: device) ?? "pointing-device")
+        return "device-\(vendor)-\(product)-\(sanitized(transport))-\(productName)"
     }
 
     private func describe(_ device: IOHIDDevice, id: String) -> MouseDevice {
@@ -327,7 +385,13 @@ final class HIDInputManager {
 
     private static let deviceAdded: IOHIDDeviceCallback = { context, _, _, device in
         guard let context else { return }
-        Unmanaged<HIDInputManager>.fromOpaque(context).takeUnretainedValue().addIfPointing(device)
+        let manager = Unmanaged<HIDInputManager>.fromOpaque(context).takeUnretainedValue()
+        if manager.exclusiveLifecycleScheduled {
+            _ = manager.tryStartExclusiveCapture(context: context)
+            manager.rescan()
+        } else {
+            manager.addIfPointing(device)
+        }
     }
 
     private static let deviceRemoved: IOHIDDeviceCallback = { context, _, _, device in

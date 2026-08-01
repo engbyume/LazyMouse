@@ -7,6 +7,7 @@ BUNDLE_ID="com.engbyume.LazyMouse"
 APP_PATH="$ROOT_DIR/.build/lazymouse-package/$APP_NAME.app"
 ICONSET_DIR="$ROOT_DIR/.build/AppIcon.iconset"
 ICON_SOURCE="$ROOT_DIR/assets/AppIcon.svg"
+MENU_ICON_SOURCE="$ROOT_DIR/assets/AppIconMenu.svg"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/Applications}"
 INSTALL_PATH="$INSTALL_DIR/$APP_NAME.app"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-LazyMouse Local Development}"
@@ -27,7 +28,7 @@ require_command codesign
 require_command security
 
 SIGNING_ARGUMENT="-"
-if security find-certificate -a -c "$SIGNING_IDENTITY" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1; then
+if security find-identity -v -p codesigning "$HOME/Library/Keychains/login.keychain-db" 2>/dev/null | grep -Fq "\"$SIGNING_IDENTITY\""; then
   SIGNING_ARGUMENT="$SIGNING_IDENTITY"
   echo "Using stable signing identity: $SIGNING_IDENTITY"
 else
@@ -46,6 +47,7 @@ mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources" "$ICONSET_DIR
 
 ICON_PNG="$ICONSET_DIR/icon_512x512@2x.png"
 rsvg-convert -w 1024 -h 1024 "$ICON_SOURCE" -o "$ICON_PNG"
+rsvg-convert -w 128 -h 128 "$MENU_ICON_SOURCE" -o "$APP_PATH/Contents/Resources/AppIconMenu.png"
 
 make_icon_size() {
   local size="$1"
