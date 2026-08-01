@@ -6,7 +6,7 @@ final class HIDInputManager {
     typealias DeviceHandler = ([MouseDevice]) -> Void
     typealias DeltaHandler = (String, CGPoint) -> Void
     typealias ButtonHandler = (String, Int, Bool) -> Void
-    typealias ScrollHandler = (String, CGFloat) -> Void
+    typealias ScrollHandler = (String, ScrollInput) -> Void
 
     var onDevicesChanged: DeviceHandler?
     var onDelta: DeltaHandler?
@@ -526,7 +526,18 @@ final class HIDInputManager {
         }
 
         if page == kHIDPage_GenericDesktop, usage == kHIDUsage_GD_Wheel {
-            onScroll?(deviceID, CGFloat(IOHIDValueGetIntegerValue(value)))
+            onScroll?(
+                deviceID,
+                ScrollInput(x: 0, y: CGFloat(IOHIDValueGetIntegerValue(value)), unit: .line)
+            )
+            return
+        }
+
+        if page == kHIDPage_Consumer, usage == 0x0238 {
+            onScroll?(
+                deviceID,
+                ScrollInput(x: CGFloat(IOHIDValueGetIntegerValue(value)), y: 0, unit: .line)
+            )
         }
     }
 }

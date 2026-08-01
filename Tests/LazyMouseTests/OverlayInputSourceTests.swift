@@ -15,4 +15,14 @@ final class OverlayInputSourceTests: XCTestCase {
             XCTAssertEqual(OverlayInputSource(rawValue: source.rawValue), source)
         }
     }
+
+    func testExternalMouseAssignmentRoutesEveryExternalActionToOverlay() {
+        XCTAssertEqual(OverlayInputSource.externalMouse.destination(for: .externalMouse), .overlay)
+        XCTAssertEqual(OverlayInputSource.externalMouse.destination(for: .builtInTrackpad), .system)
+    }
+
+    func testTrackpadAssignmentRoutesEveryTrackpadActionToOverlay() {
+        XCTAssertEqual(OverlayInputSource.builtInTrackpad.destination(for: .builtInTrackpad), .overlay)
+        XCTAssertEqual(OverlayInputSource.builtInTrackpad.destination(for: .externalMouse), .system)
+    }
 }

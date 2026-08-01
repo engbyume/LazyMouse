@@ -22,5 +22,16 @@ struct LazyMouseApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        if SignedInteractionSelfTest.isRequested {
+            ProcessInfo.processInfo.disableAutomaticTermination("LazyMouse signed interaction self-test")
+        }
+        SignedInteractionSelfTest.runIfRequested()
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if SignedInteractionSelfTest.isRequested && !SignedInteractionSelfTest.allowsTermination {
+            return .terminateCancel
+        }
+        return .terminateNow
     }
 }

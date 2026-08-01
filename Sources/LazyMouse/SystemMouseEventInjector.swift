@@ -59,22 +59,27 @@ final class SystemMouseEventInjector {
     }
 
     @discardableResult
-    func postScroll(delta: CGFloat) -> Bool {
-        guard CGPreflightPostEventAccess(), delta.isFinite, delta != 0,
+    func postScroll(_ input: ScrollInput) -> Bool {
+        guard CGPreflightPostEventAccess(), !input.isZero,
+              input.x.isFinite, input.y.isFinite,
               let current = CGEvent(source: nil)?.location else { return false }
-        let boundedDelta = min(max(delta.rounded(), CGFloat(Int32.min)), CGFloat(Int32.max))
+        let unit: CGScrollEventUnit = input.unit == .pixel ? .pixel : .line
         guard let event = CGEvent(
             scrollWheelEvent2Source: eventSource,
-            units: .line,
-            wheelCount: 1,
-            wheel1: Int32(boundedDelta),
-            wheel2: 0,
+            units: unit,
+            wheelCount: 2,
+            wheel1: boundedInt32(input.y),
+            wheel2: boundedInt32(input.x),
             wheel3: 0
         ) else { return false }
         event.location = current
         SyntheticEventTag.mark(event)
         event.post(tap: .cghidEventTap)
         return true
+    }
+
+    private func boundedInt32(_ value: CGFloat) -> Int32 {
+        Int32(min(max(value.rounded(), CGFloat(Int32.min)), CGFloat(Int32.max)))
     }
 
     func releasePressedButtons() {

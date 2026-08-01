@@ -24,19 +24,24 @@ struct MainMenuView: View {
                 set: { state.setSeparateCursorEnabled($0) }
             ))
 
-            Button("Swap cursor controls") {
+            Button("Swap mouse and trackpad") {
                 state.swapCursorAssignments()
             }
             .disabled(!state.separateCursorEnabled || !state.externalMouseAvailable)
-            .help("Switch which device controls the overlay and normal macOS cursor")
+            .help("Exchange which device controls the red cursor and regular cursor")
 
-            HStack {
-                Label("Overlay: \(state.overlayInputSource.displayName)", systemImage: "cursorarrow.motionlines")
-                Spacer()
-                Text("macOS: \(state.overlayInputSource.other.displayName)")
+            VStack(alignment: .leading, spacing: 6) {
+                assignmentRow(
+                    title: "Red cursor",
+                    device: state.overlayInputSource.displayName,
+                    color: state.cursorColor.nsColor
+                )
+                assignmentRow(
+                    title: "Regular cursor",
+                    device: state.overlayInputSource.other.displayName,
+                    color: .labelColor
+                )
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
 
             HStack {
                 Text("Cursor color")
@@ -131,7 +136,7 @@ struct MainMenuView: View {
         guard state.separateCursorEnabled else {
             return "The mouse and trackpad both use the normal macOS cursor."
         }
-        return "\(state.overlayInputSource.displayName) uses the overlay; \(state.overlayInputSource.other.displayName.lowercased()) keeps the normal cursor."
+        return "Each device moves, clicks, right-clicks, drags, and scrolls only its assigned cursor."
     }
 
     private var statusText: String {
@@ -157,6 +162,21 @@ struct MainMenuView: View {
     private var isolationReady: Bool {
         state.hidExclusive
             && (state.overlayInputSource == .externalMouse || state.trackpadIsolationActive)
+            && state.postEventsAvailable
+    }
+
+    private func assignmentRow(title: String, device: String, color: NSColor) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "cursorarrow")
+                .foregroundStyle(Color(nsColor: color))
+                .frame(width: 16)
+            Text(title)
+                .font(.caption.weight(.semibold))
+            Spacer()
+            Text(device)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 

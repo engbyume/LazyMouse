@@ -20,6 +20,17 @@ enum OverlayInputSource: String, CaseIterable {
     }
 }
 
+enum CursorDestination: Equatable {
+    case overlay
+    case system
+}
+
+extension OverlayInputSource {
+    func destination(for input: OverlayInputSource) -> CursorDestination {
+        input == self ? .overlay : .system
+    }
+}
+
 struct CursorColor: Hashable, Identifiable {
     let red: CGFloat
     let green: CGFloat

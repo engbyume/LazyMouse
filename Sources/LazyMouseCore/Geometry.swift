@@ -1,4 +1,4 @@
-import Foundation
+import CoreGraphics
 
 public struct DesktopDisplay: Equatable, Sendable {
     public let id: UInt32

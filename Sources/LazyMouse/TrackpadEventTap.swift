@@ -5,7 +5,7 @@ import OSLog
 final class TrackpadEventTap {
     typealias DeltaHandler = (CGPoint) -> Void
     typealias ButtonHandler = (Int, Bool) -> Void
-    typealias ScrollHandler = (CGFloat) -> Void
+    typealias ScrollHandler = (ScrollInput) -> Void
 
     var onDelta: DeltaHandler?
     var onButton: ButtonHandler?
@@ -122,12 +122,8 @@ final class TrackpadEventTap {
             let button = Int(event.getIntegerValueField(.mouseEventButtonNumber)) + 1
             onButton?(button, type == .otherMouseDown)
         case .scrollWheel:
-            let pointDelta = event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1)
-            let lineDelta = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
-            let delta = pointDelta != 0 ? pointDelta : lineDelta
-            if delta != 0 {
-                onScroll?(CGFloat(delta))
-            }
+            let input = ScrollInput.from(event: event)
+            if !input.isZero { onScroll?(input) }
         default:
             break
         }

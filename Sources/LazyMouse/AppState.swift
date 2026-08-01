@@ -50,8 +50,8 @@ final class AppState: ObservableObject {
         hid.onButton = { [weak self] deviceID, button, pressed in
             DispatchQueue.main.async { self?.externalButton(deviceID: deviceID, button: button, pressed: pressed) }
         }
-        hid.onScroll = { [weak self] deviceID, delta in
-            DispatchQueue.main.async { self?.externalScroll(deviceID: deviceID, delta: delta) }
+        hid.onScroll = { [weak self] deviceID, input in
+            DispatchQueue.main.async { self?.externalScroll(deviceID: deviceID, input: input) }
         }
         trackpadTap.onDelta = { [weak self] delta in
             DispatchQueue.main.async { self?.trackpadMove(delta: delta) }
@@ -59,8 +59,8 @@ final class AppState: ObservableObject {
         trackpadTap.onButton = { [weak self] button, pressed in
             DispatchQueue.main.async { self?.trackpadButton(button: button, pressed: pressed) }
         }
-        trackpadTap.onScroll = { [weak self] delta in
-            DispatchQueue.main.async { self?.trackpadScroll(delta: delta) }
+        trackpadTap.onScroll = { [weak self] input in
+            DispatchQueue.main.async { self?.trackpadScroll(input) }
         }
         if separateCursorEnabled && !CGPreflightListenEventAccess() {
             _ = CGRequestListenEventAccess()
@@ -298,7 +298,7 @@ final class AppState: ObservableObject {
 
     private func externalMove(deviceID: String, delta: CGPoint) {
         guard separateCursorEnabled else { return }
-        if overlayInputSource == .externalMouse {
+        if overlayInputSource.destination(for: .externalMouse) == .overlay {
             move(deviceID: deviceID, delta: delta)
         } else {
             if systemEventInjector.postMove(delta: delta), !loggedSystemMotion {
@@ -310,7 +310,7 @@ final class AppState: ObservableObject {
 
     private func externalButton(deviceID: String, button: Int, pressed: Bool) {
         guard separateCursorEnabled else { return }
-        if overlayInputSource == .externalMouse {
+        if overlayInputSource.destination(for: .externalMouse) == .overlay {
             self.button(deviceID: deviceID, button: button, pressed: pressed)
         } else {
             if systemEventInjector.postButton(button: button, pressed: pressed), !loggedSystemButton {
@@ -320,12 +320,12 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func externalScroll(deviceID: String, delta: CGFloat) {
+    private func externalScroll(deviceID: String, input: ScrollInput) {
         guard separateCursorEnabled else { return }
-        if overlayInputSource == .externalMouse {
-            scroll(deviceID: deviceID, delta: delta)
+        if overlayInputSource.destination(for: .externalMouse) == .overlay {
+            scroll(deviceID: deviceID, input: input)
         } else {
-            if systemEventInjector.postScroll(delta: delta), !loggedSystemScroll {
+            if systemEventInjector.postScroll(input), !loggedSystemScroll {
                 loggedSystemScroll = true
                 logger.notice("External mouse scroll event posted to the normal cursor")
             }
@@ -333,18 +333,21 @@ final class AppState: ObservableObject {
     }
 
     private func trackpadMove(delta: CGPoint) {
-        guard overlayInputSource == .builtInTrackpad, let deviceID = devices.first?.id else { return }
+        guard overlayInputSource.destination(for: .builtInTrackpad) == .overlay,
+              let deviceID = devices.first?.id else { return }
         move(deviceID: deviceID, delta: delta)
     }
 
     private func trackpadButton(button: Int, pressed: Bool) {
-        guard overlayInputSource == .builtInTrackpad, let deviceID = devices.first?.id else { return }
+        guard overlayInputSource.destination(for: .builtInTrackpad) == .overlay,
+              let deviceID = devices.first?.id else { return }
         self.button(deviceID: deviceID, button: button, pressed: pressed)
     }
 
-    private func trackpadScroll(delta: CGFloat) {
-        guard overlayInputSource == .builtInTrackpad, let deviceID = devices.first?.id else { return }
-        scroll(deviceID: deviceID, delta: delta)
+    private func trackpadScroll(_ input: ScrollInput) {
+        guard overlayInputSource.destination(for: .builtInTrackpad) == .overlay,
+              let deviceID = devices.first?.id else { return }
+        scroll(deviceID: deviceID, input: input)
     }
 
     private func button(deviceID: String, button: Int, pressed: Bool) {
@@ -362,10 +365,10 @@ final class AppState: ObservableObject {
         refreshPostEventsAvailability()
     }
 
-    private func scroll(deviceID: String, delta: CGFloat) {
+    private func scroll(deviceID: String, input: ScrollInput) {
         guard separateCursorEnabled else { return }
         guard let point = cursors[deviceID] else { return }
-        if eventInjector.postScroll(delta: delta, at: point), !loggedOverlayScroll {
+        if eventInjector.postScroll(input, at: point), !loggedOverlayScroll {
             loggedOverlayScroll = true
             logger.notice("Overlay scroll event posted")
         }
