@@ -39,3 +39,15 @@ To build and install without opening it:
 ```
 
 The script uses the ignored `.build` directory for temporary packaging output and installs the app at `/Applications/LazyMouse.app`, leaving one user-facing app. The icon is intentionally text-free so the two-mouse mark remains legible in Finder, GitHub, and at small menu sizes. Packaging requires the stable `LazyMouse Local Development` identity by default because ad-hoc signatures invalidate Input Monitoring authorization after rebuilds. Set `SIGNING_IDENTITY` to another unique valid local identity when needed. `ALLOW_ADHOC_SIGNING=1` is available only as an explicit diagnostic escape hatch and is not suitable for mouse capture.
+
+## Verification log
+
+The current local verification passes include:
+
+- `swift test`: 8 tests passed.
+- `git diff --check`: passed.
+- `./build_app.sh`: release build, stable signing, bundle verification, and install passed.
+- Installed bundle: `/Applications/LazyMouse.app`.
+- The app bundle uses the stable `LazyMouse Local Development` signature so Input Monitoring can persist across rebuilds.
+
+After launch, the menu-bar status should read **External mouse isolated** when the external mouse is captured. The built-in trackpad remains assigned to the normal macOS cursor.
