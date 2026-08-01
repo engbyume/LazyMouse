@@ -70,8 +70,11 @@ final class VirtualMouseEventInjector {
 
     private func post(_ event: CGEvent) -> Bool {
         guard let restorePoint = CGEvent(source: nil)?.location else { return false }
+        let eventPoint = event.location
         event.post(tap: .cghidEventTap)
         DispatchQueue.main.async {
+            guard let currentPoint = CGEvent(source: nil)?.location,
+                  hypot(currentPoint.x - eventPoint.x, currentPoint.y - eventPoint.y) <= 0.5 else { return }
             CGWarpMouseCursorPosition(restorePoint)
         }
         return true
