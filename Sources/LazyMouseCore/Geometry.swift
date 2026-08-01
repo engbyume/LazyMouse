@@ -29,7 +29,14 @@ public enum CursorGeometry {
     public static func move(point: CGPoint, delta: CGPoint, boundary: CursorBoundary, displays: [DesktopDisplay]) -> CGPoint {
         let proposed = CGPoint(x: point.x + delta.x, y: point.y + delta.y)
         guard case let .display(displayID) = boundary else {
-            return proposed
+            guard !displays.isEmpty else { return proposed }
+            if displays.contains(where: { $0.bounds.contains(proposed) }) {
+                return proposed
+            }
+            return displays
+                .map { clamp(proposed, to: $0.bounds) }
+                .min { squaredDistance(from: proposed, to: $0) < squaredDistance(from: proposed, to: $1) }
+                ?? point
         }
         guard let display = displays.first(where: { $0.id == displayID }) else {
             return point
@@ -43,6 +50,12 @@ public enum CursorGeometry {
             y: min(max(point.y, bounds.origin.y), bounds.origin.y + bounds.size.height)
         )
     }
+
+    private static func squaredDistance(from lhs: CGPoint, to rhs: CGPoint) -> CGFloat {
+        let x = lhs.x - rhs.x
+        let y = lhs.y - rhs.y
+        return x * x + y * y
+    }
 }
 
 public enum MouseEventGeometry {
@@ -54,6 +67,17 @@ public enum MouseEventGeometry {
         CGPoint(
             x: quartzPrimaryBounds.origin.x + (appKitPoint.x - appKitPrimaryFrame.origin.x),
             y: quartzPrimaryBounds.origin.y + quartzPrimaryBounds.size.height - (appKitPoint.y - appKitPrimaryFrame.origin.y)
+        )
+    }
+
+    public static func appKitPoint(
+        from quartzPoint: CGPoint,
+        appKitPrimaryFrame: CGRect,
+        quartzPrimaryBounds: CGRect
+    ) -> CGPoint {
+        CGPoint(
+            x: appKitPrimaryFrame.origin.x + (quartzPoint.x - quartzPrimaryBounds.origin.x),
+            y: appKitPrimaryFrame.origin.y + quartzPrimaryBounds.size.height - (quartzPoint.y - quartzPrimaryBounds.origin.y)
         )
     }
 }

@@ -17,8 +17,25 @@ final class VirtualMouseEventInjector {
         canPostEvents: @escaping () -> Bool = { CGPreflightPostEventAccess() }
     ) {
         self.canPostEvents = canPostEvents
-        eventSource = CGEventSource(stateID: .combinedSessionState)
+        eventSource = CGEventSource(stateID: .hidSystemState)
         eventSource?.localEventsSuppressionInterval = 0
+    }
+
+    @discardableResult
+    func postMove(at position: CGPoint) -> Bool {
+        guard canPostEvents() else { return false }
+        let quartzPosition = quartzPoint(from: position)
+        let currentPosition = CGEvent(source: nil)?.location ?? quartzPosition
+        guard let event = CGEvent(
+            mouseEventSource: eventSource,
+            mouseType: .mouseMoved,
+            mouseCursorPosition: quartzPosition,
+            mouseButton: .left
+        ) else { return false }
+        event.setIntegerValueField(.mouseEventDeltaX, value: Int64((quartzPosition.x - currentPosition.x).rounded()))
+        event.setIntegerValueField(.mouseEventDeltaY, value: Int64((quartzPosition.y - currentPosition.y).rounded()))
+        SyntheticEventTag.mark(event)
+        return post(event)
     }
 
     @discardableResult
@@ -69,14 +86,7 @@ final class VirtualMouseEventInjector {
     }
 
     private func post(_ event: CGEvent) -> Bool {
-        guard let restorePoint = CGEvent(source: nil)?.location else { return false }
-        let eventPoint = event.location
         event.post(tap: .cghidEventTap)
-        DispatchQueue.main.async {
-            guard let currentPoint = CGEvent(source: nil)?.location,
-                  hypot(currentPoint.x - eventPoint.x, currentPoint.y - eventPoint.y) <= 0.5 else { return }
-            CGWarpMouseCursorPosition(restorePoint)
-        }
         return true
     }
 

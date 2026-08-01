@@ -111,8 +111,8 @@ struct MainMenuView: View {
                 .foregroundStyle(state.postEventsAvailable ? .green : .orange)
             }
 
-            if state.separateCursorEnabled && state.overlayInputSource == .builtInTrackpad && !state.trackpadIsolationActive {
-                Label("Trackpad isolation unavailable", systemImage: "exclamationmark.triangle.fill")
+            if state.separateCursorEnabled && state.externalMouseAvailable && !state.dualCursorActive {
+                Label("Dual-cursor isolation unavailable", systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
@@ -143,6 +143,7 @@ struct MainMenuView: View {
         if !state.separateCursorEnabled { return "Single cursor mode" }
         if state.devices.isEmpty { return "No external mouse detected" }
         if !state.hidExclusive { return "Mouse detected; capture unavailable" }
+        if !state.dualCursorActive { return "Mouse detected; cursor isolation unavailable" }
         if state.overlayInputSource == .builtInTrackpad {
             return state.trackpadIsolationActive ? "Cursor controls swapped" : "Trackpad capture unavailable"
         }
@@ -160,9 +161,7 @@ struct MainMenuView: View {
     }
 
     private var isolationReady: Bool {
-        state.hidExclusive
-            && (state.overlayInputSource == .externalMouse || state.trackpadIsolationActive)
-            && state.postEventsAvailable
+        state.dualCursorActive
     }
 
     private func assignmentRow(title: String, device: String, color: NSColor) -> some View {

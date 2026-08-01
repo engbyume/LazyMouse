@@ -10,7 +10,6 @@ final class SignedInteractionSelfTest {
     private let logger = Logger(subsystem: "com.engbyume.LazyMouse", category: "SelfTest")
     private var cursorBefore = CGPoint.zero
     private var postResults: [Bool] = []
-    private var systemMoveWorked = false
     private var trackpadTap: TrackpadEventTap?
     private var trackpadMoveWorked = false
     private var trackpadButtonEvents = 0
@@ -89,58 +88,40 @@ final class SignedInteractionSelfTest {
 
     private func postEvents() {
         let injector = VirtualMouseEventInjector()
-        let start = CGPoint(x: 170, y: 170)
-        let drag = CGPoint(x: 190, y: 180)
-        postResults = [
-            injector.postButton(button: 1, pressed: true, at: start),
-            injector.postDrag(button: 1, at: drag),
-            injector.postButton(button: 1, pressed: false, at: drag),
-            injector.postButton(button: 2, pressed: true, at: start),
-            injector.postButton(button: 2, pressed: false, at: start),
-            injector.postScroll(ScrollInput(x: 4, y: -8, unit: .pixel), at: start)
-        ]
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.postSystemCursorEvents()
+        let firstStart = CGPoint(x: 170, y: 170)
+        let firstDrag = CGPoint(x: 190, y: 180)
+        let secondStart = CGPoint(x: 230, y: 210)
+        let secondDrag = CGPoint(x: 250, y: 220)
+        postRoute(injector: injector, start: firstStart, drag: firstDrag) { [weak self] in
+            guard let self else { return }
+            self.postRoute(injector: injector, start: secondStart, drag: secondDrag) { [weak self] in
+                guard let self else { return }
+                CGWarpMouseCursorPosition(self.cursorBefore)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                    self?.finish()
+                }
+            }
         }
     }
 
-    private func postSystemCursorEvents() {
-        let displayBounds = CGDisplayBounds(CGMainDisplayID())
-        let start = CGPoint(
-            x: displayBounds.origin.x + 170,
-            y: displayBounds.origin.y + displayBounds.height - 170
-        )
-        CGWarpMouseCursorPosition(start)
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+    private func postRoute(
+        injector: VirtualMouseEventInjector,
+        start: CGPoint,
+        drag: CGPoint,
+        completion: @escaping () -> Void
+    ) {
+        postResults.append(injector.postMove(at: start))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             guard let self else { return }
-            let injector = SystemMouseEventInjector()
-            let movePosted = injector.postMove(delta: CGPoint(x: 10, y: 10))
-            self.postResults.append(movePosted)
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-                guard let self else { return }
-                let movedPoint = CGEvent(source: nil)?.location ?? start
-                self.systemMoveWorked = movePosted
-                    && hypot(movedPoint.x - (start.x + 10), movedPoint.y - (start.y - 10)) <= 0.5
-                self.postResults.append(contentsOf: [
-                    injector.postButton(button: 1, pressed: true),
-                    injector.postMove(delta: CGPoint(x: 20, y: 10)),
-                    injector.postButton(button: 1, pressed: false),
-                    injector.postButton(button: 2, pressed: true),
-                    injector.postButton(button: 2, pressed: false),
-                    injector.postScroll(ScrollInput(x: 4, y: -8, unit: .pixel))
-                ])
-
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-                    guard let self else { return }
-                    CGWarpMouseCursorPosition(self.cursorBefore)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-                        self?.finish()
-                    }
-                }
-            }
+            self.postResults.append(contentsOf: [
+                injector.postButton(button: 1, pressed: true, at: start),
+                injector.postDrag(button: 1, at: drag),
+                injector.postButton(button: 1, pressed: false, at: drag),
+                injector.postButton(button: 2, pressed: true, at: start),
+                injector.postButton(button: 2, pressed: false, at: start),
+                injector.postScroll(ScrollInput(x: 4, y: -8, unit: .pixel), at: start)
+            ])
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: completion)
         }
     }
 
@@ -149,12 +130,11 @@ final class SignedInteractionSelfTest {
         let cursorStable = hypot(cursorAfter.x - cursorBefore.x, cursorAfter.y - cursorBefore.y) <= 0.5
         let passed = CGPreflightPostEventAccess()
             && cursorStable
-            && systemMoveWorked
             && trackpadMoveWorked
             && trackpadButtonEvents == 2
             && trackpadScrollWorked
             && !postResults.contains(false)
-        let result = "SIGNED_INTERACTION_SELF_TEST \(passed ? "PASS" : "FAIL") postAccess=\(CGPreflightPostEventAccess()) cursorStable=\(cursorStable) trackpadMove=\(trackpadMoveWorked) trackpadButtons=\(trackpadButtonEvents) trackpadScroll=\(trackpadScrollWorked) systemMove=\(systemMoveWorked) posts=\(postResults)"
+        let result = "SIGNED_INTERACTION_SELF_TEST \(passed ? "PASS" : "FAIL") postAccess=\(CGPreflightPostEventAccess()) cursorStable=\(cursorStable) trackpadMove=\(trackpadMoveWorked) trackpadButtons=\(trackpadButtonEvents) trackpadScroll=\(trackpadScrollWorked) dualCursorPosts=\(postResults)"
         try? Data("\(result)\n".utf8).write(
             to: URL(fileURLWithPath: "/tmp/lazymouse-signed-self-test.txt"),
             options: .atomic

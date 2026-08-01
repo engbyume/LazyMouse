@@ -42,10 +42,7 @@ fi
 
 cd "$ROOT_DIR"
 echo "Building $APP_NAME in release mode..."
-# Swift 6.3 can hit a release-optimizer module deserialization bug when
-# importing LazyMouseCore's CoreGraphics geometry types. Keep the packaged
-# utility unoptimized until that toolchain issue is resolved.
-swift build -c release -Xswiftc -Onone
+swift build -c release -Xswiftc -warnings-as-errors
 
 rm -rf "$APP_PATH" "$ICONSET_DIR"
 mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources" "$ICONSET_DIR"
