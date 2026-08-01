@@ -8,7 +8,7 @@ APP_PATH="$ROOT_DIR/.build/lazymouse-package/$APP_NAME.app"
 ICONSET_DIR="$ROOT_DIR/.build/AppIcon.iconset"
 ICON_SOURCE="$ROOT_DIR/assets/AppIcon.svg"
 MENU_ICON_SOURCE="$ROOT_DIR/assets/AppIconMenu.svg"
-INSTALL_DIR="${INSTALL_DIR:-$HOME/Applications}"
+INSTALL_DIR="${INSTALL_DIR:-/Applications}"
 INSTALL_PATH="$INSTALL_DIR/$APP_NAME.app"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-LazyMouse Local Development}"
 trap 'rm -rf "$APP_PATH" "$ICONSET_DIR"' EXIT
@@ -28,11 +28,16 @@ require_command codesign
 require_command security
 
 SIGNING_ARGUMENT="-"
-if security find-identity -v -p codesigning "$HOME/Library/Keychains/login.keychain-db" 2>/dev/null | grep -Fq "\"$SIGNING_IDENTITY\""; then
+SIGNING_MATCH_COUNT="$(security find-identity -v -p codesigning "$HOME/Library/Keychains/login.keychain-db" 2>/dev/null | awk -v identity="$SIGNING_IDENTITY" 'index($0, "\"" identity "\"") { count += 1 } END { print count + 0 }')"
+if [[ "$SIGNING_MATCH_COUNT" == "1" ]]; then
   SIGNING_ARGUMENT="$SIGNING_IDENTITY"
   echo "Using stable signing identity: $SIGNING_IDENTITY"
+elif [[ "${ALLOW_ADHOC_SIGNING:-0}" == "1" ]]; then
+  echo "Stable signing identity unavailable; using an ad-hoc signature by explicit request." >&2
 else
-  echo "Stable signing identity unavailable; using an ad-hoc signature." >&2
+  echo "A unique stable signing identity named '$SIGNING_IDENTITY' is required for Input Monitoring." >&2
+  echo "Create or select that identity, or set SIGNING_IDENTITY to one valid identity." >&2
+  exit 1
 fi
 
 cd "$ROOT_DIR"

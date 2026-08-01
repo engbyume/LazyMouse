@@ -193,20 +193,19 @@ final class HIDInputManager {
     }
 
     private func tryStartExclusiveCapture(context: UnsafeMutableRawPointer) -> Bool {
-        guard !isExclusive else { return true }
         guard let currentDevices = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> else {
             logger.error("HID manager returned no devices for exclusive capture")
             return false
         }
 
         let candidates = currentDevices
-            .filter(isPointingDevice)
+            .filter { !seizedDevices.keys.contains(ObjectIdentifier($0)) && isPointingDevice($0) }
             .reduce(into: [String: [IOHIDDevice]]()) { result, device in
                 result[stableID(for: device), default: []].append(device)
             }
 
-        var captured = false
         for (_, devicesForID) in candidates.sorted(by: { $0.key < $1.key }) {
+            var capturedGroup = false
             for device in devicesForID {
                 let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
                 guard result == kIOReturnSuccess else {
@@ -218,14 +217,17 @@ final class HIDInputManager {
                 addIfPointing(device)
                 IOHIDDeviceRegisterInputValueCallback(device, Self.inputValue, context)
                 IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
-                captured = true
+                capturedGroup = true
+            }
+            if capturedGroup {
                 break
             }
-            if captured { break }
         }
 
         guard !seizedDevices.isEmpty else {
-            closeCapture()
+            if !isExclusive {
+                closeCapture()
+            }
             return false
         }
 

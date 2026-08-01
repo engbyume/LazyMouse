@@ -146,20 +146,24 @@ final class AppState: ObservableObject {
     }
 
     func openInputMonitoringSettings() {
-        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!)
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     func requestClickAccess() {
         postEventsAvailable = CGPreflightPostEventAccess() || CGRequestPostEventAccess()
         if !postEventsAvailable {
-            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+            guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else { return }
+            NSWorkspace.shared.open(url)
         }
     }
 
     func requestInputMonitoringAccess() {
-        let granted = CGPreflightListenEventAccess() || CGRequestListenEventAccess()
-        if granted {
-            rescanDevices()
+        let preflightGranted = CGPreflightListenEventAccess()
+        let requested = CGRequestListenEventAccess()
+        rescanDevices()
+        if !preflightGranted || !requested || !hid.isExclusive {
+            openInputMonitoringSettings()
         }
     }
 

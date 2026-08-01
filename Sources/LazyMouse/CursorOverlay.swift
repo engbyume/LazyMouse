@@ -68,6 +68,7 @@ final class CursorOverlayController {
 final class CursorOverlayView: NSView {
     var cursors: [CursorVisual] = []
     private var globalOrigin: CGPoint
+    private var tintedImages: [String: NSImage] = [:]
 
     init(frame: NSRect, globalOrigin: CGPoint) {
         self.globalOrigin = globalOrigin
@@ -109,9 +110,24 @@ final class CursorOverlayView: NSView {
         shadow.shadowBlurRadius = 2.5
         shadow.shadowOffset = NSSize(width: 1, height: -1)
         shadow.set()
-        image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
-        cursor.color.nsColor.set()
-        rect.fill(using: .sourceIn)
+        tintedImage(for: cursor, source: image, size: size).draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
         NSGraphicsContext.current?.restoreGraphicsState()
+    }
+
+    private func tintedImage(for cursor: CursorVisual, source: NSImage, size: NSSize) -> NSImage {
+        let key = "\(cursor.color.hex)-\(cursor.color.alpha)-\(cursor.scale)-\(size.width)-\(size.height)"
+        if let cached = tintedImages[key] {
+            return cached
+        }
+
+        let image = NSImage(size: size)
+        image.lockFocus()
+        let localRect = NSRect(origin: .zero, size: size)
+        source.draw(in: localRect, from: .zero, operation: .sourceOver, fraction: 1)
+        cursor.color.nsColor.set()
+        localRect.fill(using: .sourceIn)
+        image.unlockFocus()
+        tintedImages[key] = image
+        return image
     }
 }

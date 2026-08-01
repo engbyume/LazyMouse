@@ -25,8 +25,19 @@ struct MainMenuView: View {
             ))
 
             ColorPicker("Cursor color", selection: Binding(
-                get: { Color(nsColor: state.cursorColor.nsColor) },
-                set: { state.setCursorColor(NSColor($0)) }
+                get: {
+                    Color(
+                        red: Double(state.cursorColor.red),
+                        green: Double(state.cursorColor.green),
+                        blue: Double(state.cursorColor.blue),
+                        opacity: Double(state.cursorColor.alpha)
+                    )
+                },
+                set: { color in
+                    let nsColor = NSColor(color)
+                    let sRGBColor = nsColor.usingColorSpace(.sRGB) ?? nsColor
+                    state.setCursorColor(sRGBColor)
+                }
             ), supportsOpacity: false)
 
             Text(modeDescription)

@@ -18,6 +18,7 @@ let package = Package(
                 .linkedFramework("CoreGraphics")
             ]
         ),
-        .testTarget(name: "LazyMouseCoreTests", dependencies: ["LazyMouseCore"])
+        .testTarget(name: "LazyMouseCoreTests", dependencies: ["LazyMouseCore"]),
+        .testTarget(name: "LazyMouseTests", dependencies: ["LazyMouse"])
     ]
 )
