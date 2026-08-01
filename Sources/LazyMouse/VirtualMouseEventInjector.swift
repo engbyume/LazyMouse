@@ -32,6 +32,7 @@ final class VirtualMouseEventInjector {
         guard let event = CGEvent(mouseEventSource: eventSource, mouseType: type, mouseCursorPosition: quartzPosition, mouseButton: mouseButton) else { return false }
         event.setIntegerValueField(.mouseEventButtonNumber, value: Int64(mouseButton.rawValue))
         event.setIntegerValueField(.mouseEventClickState, value: Int64(clickState(for: button, at: position, pressed: pressed)))
+        SyntheticEventTag.mark(event)
         return post(event)
     }
 
@@ -48,6 +49,7 @@ final class VirtualMouseEventInjector {
         guard let event = CGEvent(mouseEventSource: eventSource, mouseType: type, mouseCursorPosition: quartzPosition, mouseButton: mouseButton) else { return false }
         event.setIntegerValueField(.mouseEventButtonNumber, value: Int64(mouseButton.rawValue))
         event.setIntegerValueField(.mouseEventClickState, value: Int64(clickState(for: button, at: position, pressed: false)))
+        SyntheticEventTag.mark(event)
         return post(event)
     }
 
@@ -57,6 +59,7 @@ final class VirtualMouseEventInjector {
         let boundedDelta = min(max(delta.rounded(), CGFloat(Int32.min)), CGFloat(Int32.max))
         guard let event = CGEvent(scrollWheelEvent2Source: eventSource, units: .line, wheelCount: 1, wheel1: Int32(boundedDelta), wheel2: 0, wheel3: 0) else { return false }
         event.location = quartzPoint(from: position)
+        SyntheticEventTag.mark(event)
         return post(event)
     }
 

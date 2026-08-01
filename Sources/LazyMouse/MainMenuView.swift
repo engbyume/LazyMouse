@@ -15,7 +15,7 @@ struct MainMenuView: View {
                     .font(.headline)
                 Spacer()
                 Circle()
-                    .fill(state.separateCursorEnabled ? (state.hidExclusive ? .green : .orange) : .gray)
+                    .fill(state.separateCursorEnabled ? (isolationReady ? .green : .orange) : .gray)
                     .frame(width: 8, height: 8)
             }
 
@@ -45,7 +45,7 @@ struct MainMenuView: View {
                     state.setCursorColor(color)
                 }
                 .frame(width: 28, height: 22)
-                .help("Choose the external cursor color")
+                .help("Choose the overlay cursor color")
             }
 
             Text(modeDescription)
@@ -106,6 +106,12 @@ struct MainMenuView: View {
                 .foregroundStyle(state.postEventsAvailable ? .green : .orange)
             }
 
+            if state.separateCursorEnabled && state.overlayInputSource == .builtInTrackpad && !state.trackpadIsolationActive {
+                Label("Trackpad isolation unavailable", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
             Divider()
             HStack {
                 Button("Rescan devices") { state.rescanDevices() }
@@ -130,8 +136,12 @@ struct MainMenuView: View {
 
     private var statusText: String {
         if !state.separateCursorEnabled { return "Single cursor mode" }
-        if state.devices.isEmpty { return "No \(state.overlayInputSource.displayName.lowercased()) detected" }
-        return state.hidExclusive ? "\(state.overlayInputSource.displayName) isolated" : "Device detected; capture unavailable"
+        if state.devices.isEmpty { return "No external mouse detected" }
+        if !state.hidExclusive { return "Mouse detected; capture unavailable" }
+        if state.overlayInputSource == .builtInTrackpad {
+            return state.trackpadIsolationActive ? "Cursor controls swapped" : "Trackpad capture unavailable"
+        }
+        return "External mouse isolated"
     }
 
     private var emptyStateText: String {
@@ -139,9 +149,14 @@ struct MainMenuView: View {
             return "Turn on separate cursor mode to use the external mouse independently."
         }
         if state.hidAvailable {
-            return "Connect or enable the \(state.overlayInputSource.displayName.lowercased()), then rescan."
+            return "Connect or enable the external mouse, then rescan."
         }
         return "LazyMouse could not open the HID manager. Check Input Monitoring permission, then rescan."
+    }
+
+    private var isolationReady: Bool {
+        state.hidExclusive
+            && (state.overlayInputSource == .externalMouse || state.trackpadIsolationActive)
     }
 }
 

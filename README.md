@@ -13,7 +13,7 @@ LazyMouse is a macOS menu bar utility for showing one customizable cursor overla
 - An external mouse exposed by macOS as a standard Generic Desktop Mouse HID device
 - A stable code-signing identity for local packaging, so macOS can retain Input Monitoring authorization across rebuilds
 
-LazyMouse enumerates standard Generic Desktop pointer devices, then seizes only the device assigned to the overlay so it does not also move the regular cursor. This covers the connected USB, Bluetooth, or receiver-based mouse and the built-in trackpad pointer service. The menu includes a persisted separate-cursor toggle, a cursor-color picker, interactive overlay clicks, drags, and scrolling, plus a persisted assignment swap. If the external mouse disconnects while the trackpad owns the overlay, LazyMouse immediately releases the trackpad back to the normal macOS cursor.
+LazyMouse enumerates standard Generic Desktop pointer devices and exclusively captures the external mouse. In the default assignment, its HID input drives the overlay while the built-in trackpad stays with macOS. In the swapped assignment, tagged synthetic events route the captured external mouse to the normal cursor while an event tap isolates trackpad movement, clicks, drags, and two-finger scrolling for the overlay. The tags prevent LazyMouse from recapturing its own synthetic events. If the external mouse disconnects while the trackpad owns the overlay, LazyMouse immediately releases the trackpad back to the normal macOS cursor.
 
 ## Run from source
 
@@ -24,7 +24,7 @@ swift run LazyMouse
 
 HID discovery and exclusive mouse capture may require **System Settings > Privacy & Security > Input Monitoring** on the current macOS configuration; LazyMouse includes a shortcut to that pane when no device is visible. If the Bluetooth mouse was connected before LazyMouse started, use **Rescan mice** in the menu. With one display, assign the mouse to **Free - all displays**. The app does not claim notarization and should be treated as a locally built developer utility.
 
-Overlay interaction requires **System Settings > Privacy & Security > Accessibility**. Use **Request Click Access** in the LazyMouse menu if clicks, drags, or scrolling are unavailable, then relaunch LazyMouse after enabling it.
+Overlay interaction requires **System Settings > Privacy & Security > Accessibility**. LazyMouse requests CoreGraphics event-posting access at startup and shows the exact readiness state in its menu. Use **Request Click Access** if clicks, drags, or scrolling are unavailable, then relaunch LazyMouse after enabling it.
 
 ## Build and install the macOS app
 
@@ -46,7 +46,7 @@ The script uses the ignored `.build` directory for temporary packaging output an
 
 The current local verification passes include:
 
-- `swift test`: 11 tests passed.
+- `swift test`: 12 tests passed.
 - `git diff --check`: passed.
 - `./build_app.sh`: release build, stable signing, bundle verification, and install passed.
 - Installed bundle: `/Applications/LazyMouse.app`.
