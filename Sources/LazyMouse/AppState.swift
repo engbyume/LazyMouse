@@ -50,6 +50,9 @@ final class AppState: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.refreshDisplays()
+                self.hid.retryExclusiveCapture()
+                self.hidAvailable = self.hid.isAvailable
+                self.hidExclusive = self.hid.isExclusive
                 self.overlay.update(cursors: self.cursorVisuals)
             }
         }

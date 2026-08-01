@@ -24,21 +24,15 @@ struct MainMenuView: View {
                 set: { state.setSeparateCursorEnabled($0) }
             ))
 
-            ColorPicker("Cursor color", selection: Binding(
-                get: {
-                    Color(
-                        red: Double(state.cursorColor.red),
-                        green: Double(state.cursorColor.green),
-                        blue: Double(state.cursorColor.blue),
-                        opacity: Double(state.cursorColor.alpha)
-                    )
-                },
-                set: { color in
-                    let nsColor = NSColor(color)
-                    let sRGBColor = nsColor.usingColorSpace(.sRGB) ?? nsColor
-                    state.setCursorColor(sRGBColor)
+            HStack {
+                Text("Cursor color")
+                Spacer()
+                CursorColorWell(color: state.cursorColor.nsColor) { color in
+                    state.setCursorColor(color)
                 }
-            ), supportsOpacity: false)
+                .frame(width: 28, height: 22)
+                .help("Choose the external cursor color")
+            }
 
             Text(modeDescription)
                 .font(.caption)
@@ -124,6 +118,44 @@ struct MainMenuView: View {
             return "Connect the external mouse, then rescan. The built-in trackpad stays with the normal cursor."
         }
         return "LazyMouse could not open the HID manager. Check Input Monitoring permission, then rescan."
+    }
+}
+
+private struct CursorColorWell: NSViewRepresentable {
+    let color: NSColor
+    let onChange: (NSColor) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onChange: onChange)
+    }
+
+    func makeNSView(context: Context) -> NSColorWell {
+        let colorWell = NSColorWell()
+        colorWell.color = color
+        colorWell.setAccessibilityLabel("Cursor color")
+        colorWell.identifier = NSUserInterfaceItemIdentifier("cursor-color-well")
+        colorWell.target = context.coordinator
+        colorWell.action = #selector(Coordinator.colorChanged(_:))
+        return colorWell
+    }
+
+    func updateNSView(_ nsView: NSColorWell, context: Context) {
+        if nsView.color != color {
+            nsView.color = color
+        }
+        context.coordinator.onChange = onChange
+    }
+
+    final class Coordinator: NSObject {
+        var onChange: (NSColor) -> Void
+
+        init(onChange: @escaping (NSColor) -> Void) {
+            self.onChange = onChange
+        }
+
+        @objc func colorChanged(_ sender: NSColorWell) {
+            onChange(sender.color)
+        }
     }
 }
 

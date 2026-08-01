@@ -23,8 +23,6 @@ final class HIDInputManager {
     private var started = false
     private var discoveryOpen = false
     private var discoveryScheduled = false
-    private var exclusiveLifecycleOpen = false
-    private var exclusiveLifecycleScheduled = false
     private var loggedFirstInput = false
 
     init() {
@@ -89,7 +87,13 @@ final class HIDInputManager {
     }
 
     func retryExclusiveCapture() {
-        guard started, !isExclusive else {
+        guard started else {
+            return
+        }
+
+        if isExclusive {
+            let context = Unmanaged.passUnretained(self).toOpaque()
+            _ = tryStartExclusiveCapture(context: context)
             rescan()
             return
         }
@@ -160,7 +164,6 @@ final class HIDInputManager {
     }
 
     private func closeCapture() {
-        closeExclusiveLifecycle()
         for device in seizedDevices.values {
             IOHIDDeviceRegisterInputValueCallback(device, nil, nil)
             IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
@@ -172,7 +175,7 @@ final class HIDInputManager {
 
     private func addIfPointing(_ device: IOHIDDevice) {
         guard isPointingDevice(device) else { return }
-        if seizedDevices[ObjectIdentifier(device)] == nil && (exclusiveLifecycleScheduled || !seizedDevices.isEmpty) {
+        if seizedDevices[ObjectIdentifier(device)] == nil && !seizedDevices.isEmpty {
             return
         }
         add(device)
@@ -198,18 +201,25 @@ final class HIDInputManager {
             return false
         }
 
+        removeStaleSeizedDevices(from: currentDevices)
+
+        let capturedIDs = Set(seizedDevices.values.map(stableID(for:)))
         let candidates = currentDevices
-            .filter { !seizedDevices.keys.contains(ObjectIdentifier($0)) && isPointingDevice($0) }
+            .filter {
+                !seizedDevices.keys.contains(ObjectIdentifier($0))
+                    && !capturedIDs.contains(stableID(for: $0))
+                    && isPointingDevice($0)
+            }
             .reduce(into: [String: [IOHIDDevice]]()) { result, device in
                 result[stableID(for: device), default: []].append(device)
             }
 
         for (_, devicesForID) in candidates.sorted(by: { $0.key < $1.key }) {
             var capturedGroup = false
-            for device in devicesForID {
+            for device in devicesForID.sorted(by: { capturePriority(for: $0) < capturePriority(for: $1) }) {
                 let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
                 guard result == kIOReturnSuccess else {
-                    logger.error("Exclusive HID capture unavailable for one device: \(result)")
+                    logger.error("Exclusive HID capture unavailable for \(self.deviceDescription(device), privacy: .public): \(result)")
                     continue
                 }
 
@@ -218,6 +228,7 @@ final class HIDInputManager {
                 IOHIDDeviceRegisterInputValueCallback(device, Self.inputValue, context)
                 IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
                 capturedGroup = true
+                break
             }
             if capturedGroup {
                 break
@@ -232,9 +243,31 @@ final class HIDInputManager {
         }
 
         isExclusive = true
-        startExclusiveLifecycle(context: context)
-        logger.info("Exclusive external HID capture active for \(self.seizedDevices.count) HID services")
+        logger.notice("Exclusive external HID capture active for \(self.seizedDevices.count) HID services")
         return true
+    }
+
+    private func removeStaleSeizedDevices(from currentDevices: Set<IOHIDDevice>) {
+        let currentKeys = Set(currentDevices.map { ObjectIdentifier($0) })
+        let staleDevices = seizedDevices.values.filter { !currentKeys.contains(ObjectIdentifier($0)) }
+        for device in staleDevices {
+            releaseSeizedDevice(device)
+        }
+        if !staleDevices.isEmpty {
+            isExclusive = !seizedDevices.isEmpty
+            notifyDevices()
+        }
+    }
+
+    private func releaseSeizedDevice(_ device: IOHIDDevice) {
+        let key = ObjectIdentifier(device)
+        IOHIDDeviceRegisterInputValueCallback(device, nil, nil)
+        IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        IOHIDDeviceClose(device, 0)
+        seizedDevices.removeValue(forKey: key)
+        if let id = deviceIDs.removeValue(forKey: key), !deviceIDs.values.contains(id) {
+            devices.removeValue(forKey: id)
+        }
     }
 
     private func remove(_ device: IOHIDDevice) {
@@ -254,35 +287,6 @@ final class HIDInputManager {
                 devices.removeValue(forKey: id)
             }
             notifyDevices()
-        }
-    }
-
-    private func startExclusiveLifecycle(context: UnsafeMutableRawPointer) {
-        guard !exclusiveLifecycleScheduled else { return }
-        IOHIDManagerRegisterDeviceMatchingCallback(manager, Self.deviceAdded, context)
-        IOHIDManagerRegisterDeviceRemovalCallback(manager, Self.deviceRemoved, context)
-        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
-        exclusiveLifecycleScheduled = true
-
-        let result = IOHIDManagerOpen(manager, 0)
-        guard result == kIOReturnSuccess else {
-            logger.error("HID lifecycle manager open failed: \(result)")
-            closeExclusiveLifecycle()
-            return
-        }
-        exclusiveLifecycleOpen = true
-    }
-
-    private func closeExclusiveLifecycle() {
-        IOHIDManagerRegisterDeviceMatchingCallback(manager, nil, nil)
-        IOHIDManagerRegisterDeviceRemovalCallback(manager, nil, nil)
-        if exclusiveLifecycleScheduled {
-            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
-            exclusiveLifecycleScheduled = false
-        }
-        if exclusiveLifecycleOpen {
-            IOHIDManagerClose(manager, 0)
-            exclusiveLifecycleOpen = false
         }
     }
 
@@ -385,10 +389,34 @@ final class HIDInputManager {
         value.replacingOccurrences(of: "[^A-Za-z0-9._-]", with: "_", options: .regularExpression)
     }
 
+    private func deviceDescription(_ device: IOHIDDevice) -> String {
+        let product = stringProperty(kIOHIDProductKey, device: device) ?? "pointing-device"
+        let location = numberProperty(kIOHIDLocationIDKey, device: device) ?? 0
+        return "\(product)@\(location)[\(registryName(for: device))]"
+    }
+
+    private func registryName(for device: IOHIDDevice) -> String {
+        let service = IOHIDDeviceGetService(device)
+        var name = [CChar](repeating: 0, count: 128)
+        let result = name.withUnsafeMutableBufferPointer { buffer in
+            IORegistryEntryGetName(service, buffer.baseAddress!)
+        }
+        guard result == KERN_SUCCESS else { return "unknown" }
+        return String(cString: name)
+    }
+
+    private func capturePriority(for device: IOHIDDevice) -> Int {
+        switch registryName(for: device) {
+        case "AppleUserHIDEventService": return 0
+        case "IOHIDUserDevice": return 10
+        default: return 5
+        }
+    }
+
     private static let deviceAdded: IOHIDDeviceCallback = { context, _, _, device in
         guard let context else { return }
         let manager = Unmanaged<HIDInputManager>.fromOpaque(context).takeUnretainedValue()
-        if manager.exclusiveLifecycleScheduled {
+        if manager.isExclusive {
             _ = manager.tryStartExclusiveCapture(context: context)
             manager.rescan()
         } else {
