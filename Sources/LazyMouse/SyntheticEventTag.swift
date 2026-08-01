@@ -10,4 +10,5 @@ enum SyntheticEventTag {
     static func contains(_ event: CGEvent) -> Bool {
         event.getIntegerValueField(.eventSourceUserData) == value
     }
+
 }

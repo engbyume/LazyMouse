@@ -8,14 +8,14 @@ final class GeometryTests: XCTestCase {
         bounds: CGRect(x: 100, y: 50, width: 800, height: 600)
     )
 
-    func testFreeCursorCanLeaveDisplayBounds() {
+    func testFreeCursorStaysOnTheNearestDisplay() {
         let result = CursorGeometry.move(
             point: CGPoint(x: 120, y: 100),
             delta: CGPoint(x: -500, y: 900),
             boundary: .free,
             displays: [display]
         )
-        XCTAssertEqual(result, CGPoint(x: -380, y: 1000))
+        XCTAssertEqual(result, CGPoint(x: 100, y: 650))
     }
 
     func testLockedCursorClampsToSelectedDisplay() {
@@ -72,5 +72,41 @@ final class GeometryTests: XCTestCase {
             quartzPrimaryBounds: CGRect(x: 5, y: 0, width: 1512, height: 982)
         )
         XCTAssertEqual(result, CGPoint(x: -45, y: -98))
+    }
+
+    func testAppKitPointReversesQuartzConversion() {
+        let appKitFrame = CGRect(x: 10, y: 20, width: 1512, height: 982)
+        let quartzBounds = CGRect(x: 5, y: 0, width: 1512, height: 982)
+        let appKitPoint = CGPoint(x: -40, y: 1100)
+        let quartzPoint = MouseEventGeometry.quartzPoint(
+            from: appKitPoint,
+            appKitPrimaryFrame: appKitFrame,
+            quartzPrimaryBounds: quartzBounds
+        )
+
+        XCTAssertEqual(
+            MouseEventGeometry.appKitPoint(
+                from: quartzPoint,
+                appKitPrimaryFrame: appKitFrame,
+                quartzPrimaryBounds: quartzBounds
+            ),
+            appKitPoint
+        )
+    }
+
+    func testFreeCursorCanCrossBetweenDisplays() {
+        let secondDisplay = DesktopDisplay(
+            id: 43,
+            name: "Second",
+            bounds: CGRect(x: 900, y: 50, width: 800, height: 600)
+        )
+        let result = CursorGeometry.move(
+            point: CGPoint(x: 880, y: 300),
+            delta: CGPoint(x: 40, y: 0),
+            boundary: .free,
+            displays: [display, secondDisplay]
+        )
+
+        XCTAssertEqual(result, CGPoint(x: 920, y: 300))
     }
 }

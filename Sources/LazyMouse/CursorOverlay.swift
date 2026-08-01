@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 
 @MainActor
 final class CursorOverlayController {
@@ -35,7 +36,7 @@ final class CursorOverlayController {
             window.backgroundColor = .clear
             window.hasShadow = false
             window.ignoresMouseEvents = true
-            window.level = .floating
+            window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.cursorWindow)))
             window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
             window.contentView = view
             window.orderFrontRegardless()
@@ -93,6 +94,10 @@ final class CursorOverlayView: NSView {
     }
 
     private func drawCursor(_ cursor: CursorVisual, at point: CGPoint) {
+        if cursor.drawsAccentRing {
+            drawAccentRing(for: cursor, at: point)
+            return
+        }
         let arrow = NSCursor.arrow
         let image = arrow.image
         let hotSpot = arrow.hotSpot
@@ -110,7 +115,31 @@ final class CursorOverlayView: NSView {
         shadow.shadowBlurRadius = 2.5
         shadow.shadowOffset = NSSize(width: 1, height: -1)
         shadow.set()
-        tintedImage(for: cursor, source: image, size: size).draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+        let renderedImage = cursor.usesSystemAppearance
+            ? image
+            : tintedImage(for: cursor, source: image, size: size)
+        renderedImage.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+        NSGraphicsContext.current?.restoreGraphicsState()
+    }
+
+    private func drawAccentRing(for cursor: CursorVisual, at point: CGPoint) {
+        let radius: CGFloat = 11
+        let center = CGPoint(x: point.x + 7, y: point.y - 7)
+        let rect = CGRect(
+            x: center.x - radius,
+            y: center.y - radius,
+            width: radius * 2,
+            height: radius * 2
+        )
+        NSGraphicsContext.current?.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.5)
+        shadow.shadowBlurRadius = 3
+        shadow.set()
+        cursor.color.nsColor.withAlphaComponent(0.95).setStroke()
+        let ring = NSBezierPath(ovalIn: rect)
+        ring.lineWidth = 3
+        ring.stroke()
         NSGraphicsContext.current?.restoreGraphicsState()
     }
 

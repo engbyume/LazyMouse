@@ -4,7 +4,7 @@
   <img src="assets/AppIcon.svg" alt="LazyMouse logo showing two overlapping mice" width="180">
 </p>
 
-LazyMouse is a macOS menu bar utility for showing one customizable cursor overlay. The overlay uses the native macOS arrow shape at a slightly larger scale and can click, double-click, drag, right-click, and scroll. By default, the built-in trackpad remains attached to the regular macOS cursor while the external mouse moves the red cursor. The **Swap mouse and trackpad** button reverses those assignments.
+LazyMouse is a macOS menu bar utility that gives an external mouse and the built-in trackpad independent cursor positions. Both routes can hover, click, double-click, drag, right-click, and scroll. By default, the trackpad owns the regular cursor while the external mouse owns the customizable red cursor. The **Swap mouse and trackpad** button reverses those assignments.
 
 ## Requirements
 
@@ -13,7 +13,9 @@ LazyMouse is a macOS menu bar utility for showing one customizable cursor overla
 - An external mouse exposed by macOS as a standard Generic Desktop Mouse HID device
 - A stable code-signing identity for local packaging, so macOS can retain Input Monitoring authorization across rebuilds
 
-LazyMouse enumerates standard Generic Desktop pointer devices and exclusively captures the external mouse. In the default assignment, its HID input drives the red cursor while the built-in trackpad stays with macOS. In the swapped assignment, tagged synthetic events route the captured external mouse to the regular cursor while an event tap isolates trackpad movement, clicks, drags, and two-finger scrolling for the red cursor. Red-cursor interactions are delivered before the regular cursor position is restored on the next main-loop turn, so target apps receive the complete action without leaving the regular cursor displaced. Both routes preserve left, right, and middle buttons plus vertical and horizontal scrolling. If the external mouse disconnects while the trackpad owns the red cursor, LazyMouse immediately releases the trackpad back to the regular cursor.
+LazyMouse enumerates standard Generic Desktop pointer devices and exclusively captures the external mouse. An event tap isolates trackpad movement, clicks, drags, and two-finger scrolling. Both input routes are then posted at their own stored desktop positions, preserving left, right, and middle buttons plus vertical and horizontal scrolling.
+
+macOS exposes one native system pointer, so LazyMouse uses that pointer for whichever logical cursor acted most recently and draws the parked cursor at its independent position. When the customizable cursor is active, a color accent identifies the native pointer while the parked regular cursor remains visible. When the regular cursor is active, the larger native-shaped color cursor is drawn at its parked position. This keeps exactly two arrow pointers visible instead of leaving a third native arrow over a duplicate overlay. If the external mouse disconnects, LazyMouse immediately releases the trackpad back to normal single-cursor behavior.
 
 ## Run from source
 
@@ -28,7 +30,7 @@ Overlay interaction requires **System Settings > Privacy & Security > Accessibil
 
 ## Build and install the macOS app
 
-The repository includes the full-color app logo at `assets/AppIcon.svg`, the transparent menu-bar template at `assets/AppIconMenu.svg`, and a packaging script. Packaging requires `rsvg-convert` from `librsvg`; with Homebrew, install it with `brew install librsvg`. The script builds a release executable, creates `LazyMouse.app`, generates `AppIcon.icns`, signs the local bundle with the stable `LazyMouse Local Development` identity when available, installs it in `/Applications`, and can launch it through LaunchServices:
+The repository includes the full-color app logo at `assets/AppIcon.svg`, the transparent menu-bar template at `assets/AppIconMenu.svg`, and a packaging script. The same two-mouse mark is used in the README, application bundle, and menu bar. Packaging requires `rsvg-convert` from `librsvg`; with Homebrew, install it with `brew install librsvg`. The script builds a release executable with warnings treated as errors, creates `LazyMouse.app`, generates `AppIcon.icns`, signs the local bundle with the stable `LazyMouse Local Development` identity when available, installs it in `/Applications`, and can launch it through LaunchServices:
 
 ```sh
 ./build_app.sh --open
@@ -46,11 +48,13 @@ The script uses the ignored `.build` directory for temporary packaging output an
 
 The current local verification passes include:
 
-- `swift test`: 16 tests passed.
-- Signed interaction integration test: the swapped trackpad tap captured and suppressed move, click, and scroll input; both cursor routes delivered left-click, drag, right-click, and scroll to an independent AppKit target; regular-cursor movement and red-route cursor restoration also passed.
+- `swift test`: 18 tests passed.
+- `swift build -c release -Xswiftc -warnings-as-errors`: passed.
+- Signed interaction integration test: trackpad capture passed movement, click, and scroll checks; two independent cursor positions each posted move, left-click, drag, right-click, and scroll events, for 14 successful posts total.
 - `git diff --check`: passed.
 - `./build_app.sh`: release build, stable signing, bundle verification, and install passed.
 - Installed bundle: `/Applications/LazyMouse.app`.
 - The app bundle uses the stable `LazyMouse Local Development` signature so Input Monitoring can persist across rebuilds.
+- The live process reports exclusive capture for one external mouse and an installed, visible AppKit status item.
 
-After launch, the menu-bar status should read **External mouse isolated** when the external mouse is captured. The menu labels the current owners of **Red cursor** and **Regular cursor**. Use **Swap mouse and trackpad** to exchange them. LazyMouse remembers the assignment only when the external mouse is available and automatically returns the trackpad to the regular cursor if that mouse disconnects.
+After launch, click the two-mouse menu-bar icon. The status should read **External mouse isolated** when the external mouse is captured. The menu labels the current owners of **Red cursor** and **Regular cursor**, exposes a native color well for the customizable cursor, and keeps its named status item visible across launches. Use **Swap mouse and trackpad** to exchange the devices. LazyMouse remembers the assignment only when the external mouse is available and automatically returns the trackpad to the regular cursor if that mouse disconnects.

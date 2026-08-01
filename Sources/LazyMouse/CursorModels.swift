@@ -86,6 +86,24 @@ struct CursorVisual: Identifiable {
     let color: CursorColor
     let scale: CGFloat
     let position: CGPoint
+    let usesSystemAppearance: Bool
+    let drawsAccentRing: Bool
+
+    init(
+        id: String,
+        color: CursorColor,
+        scale: CGFloat,
+        position: CGPoint,
+        usesSystemAppearance: Bool = false,
+        drawsAccentRing: Bool = false
+    ) {
+        self.id = id
+        self.color = color
+        self.scale = scale
+        self.position = position
+        self.usesSystemAppearance = usesSystemAppearance
+        self.drawsAccentRing = drawsAccentRing
+    }
 }
 
 struct DisplayChoice: Identifiable, Hashable {
