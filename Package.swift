@@ -15,10 +15,10 @@ let package = Package(
             dependencies: ["LazyMouseCore"],
             linkerSettings: [
                 .linkedFramework("IOKit"),
-                .linkedFramework("ApplicationServices"),
                 .linkedFramework("CoreGraphics")
             ]
         ),
-        .testTarget(name: "LazyMouseCoreTests", dependencies: ["LazyMouseCore"])
+        .testTarget(name: "LazyMouseCoreTests", dependencies: ["LazyMouseCore"]),
+        .testTarget(name: "LazyMouseTests", dependencies: ["LazyMouse"])
     ]
 )

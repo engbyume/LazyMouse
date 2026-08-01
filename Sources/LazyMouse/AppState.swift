@@ -1,20 +1,24 @@
 import AppKit
-import ApplicationServices
+import CoreGraphics
 import LazyMouseCore
 
 @MainActor
 final class AppState: ObservableObject {
     @Published private(set) var devices: [MouseDevice] = []
     @Published private(set) var cursors: [String: CGPoint] = [:]
-    @Published private(set) var independentMode = false
-    @Published private(set) var accessibilityTrusted = AXIsProcessTrusted()
     @Published private(set) var displays: [DisplayChoice] = []
+    @Published private(set) var hidAvailable = false
+    @Published private(set) var hidExclusive = false
+    @Published private(set) var postEventsAvailable = CGPreflightPostEventAccess()
+    @Published private(set) var separateCursorEnabled = UserDefaults.standard.object(forKey: "separateCursorEnabled") as? Bool ?? true
+    @Published private(set) var cursorColor = CursorColor(hex: UserDefaults.standard.string(forKey: "cursorColor") ?? "") ?? .red
 
     private let hid = HIDInputManager()
-    private let eventTap = MouseMovementTap()
     private let overlay = CursorOverlayController()
+    private let eventInjector = VirtualMouseEventInjector()
     private let catalog = DisplayCatalog()
     private var boundaries: [String: CursorBoundary] = [:]
+    private var pressedButtons: [String: Set<Int>] = [:]
     private var refreshTimer: Timer?
     private var shutdownCoordinator: ShutdownCoordinator?
 
@@ -26,17 +30,29 @@ final class AppState: ObservableObject {
         hid.onDelta = { [weak self] deviceID, delta in
             DispatchQueue.main.async { self?.move(deviceID: deviceID, delta: delta) }
         }
-        hid.start()
+        hid.onButton = { [weak self] deviceID, button, pressed in
+            DispatchQueue.main.async { self?.button(deviceID: deviceID, button: button, pressed: pressed) }
+        }
+        hid.onScroll = { [weak self] deviceID, delta in
+            DispatchQueue.main.async { self?.scroll(deviceID: deviceID, delta: delta) }
+        }
+        if separateCursorEnabled && !CGPreflightListenEventAccess() {
+            _ = CGRequestListenEventAccess()
+        }
+        if separateCursorEnabled {
+            hid.start()
+            hidAvailable = hid.isAvailable
+            hidExclusive = hid.isExclusive
+        }
         shutdownCoordinator = ShutdownCoordinator(state: self)
         overlay.refreshScreens()
-        if UserDefaults.standard.bool(forKey: "independentMode") {
-            setIndependentMode(true)
-        }
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.accessibilityTrusted = AXIsProcessTrusted()
                 self.refreshDisplays()
+                self.hid.retryExclusiveCapture()
+                self.hidAvailable = self.hid.isAvailable
+                self.hidExclusive = self.hid.isExclusive
                 self.overlay.update(cursors: self.cursorVisuals)
             }
         }
@@ -45,17 +61,26 @@ final class AppState: ObservableObject {
     func shutdown() {
         refreshTimer?.invalidate()
         refreshTimer = nil
+        releasePressedButtons()
         hid.stop()
-        eventTap.stop()
         overlay.close()
         shutdownCoordinator = nil
     }
 
     var cursorVisuals: [CursorVisual] {
-        devices.enumerated().compactMap { index, device in
+        guard separateCursorEnabled else { return [] }
+        return devices.compactMap { device in
             guard let position = cursors[device.id] else { return nil }
-            return CursorVisual(id: device.id, label: device.name, colorIndex: index, position: position)
+            return CursorVisual(id: device.id, color: cursorColor, scale: 1.25, position: position)
         }
+    }
+
+    func setCursorColor(_ color: NSColor) {
+        let normalized = CursorColor(nsColor: color)
+        guard normalized != cursorColor else { return }
+        cursorColor = normalized
+        UserDefaults.standard.set(normalized.hex, forKey: "cursorColor")
+        overlay.update(cursors: cursorVisuals)
     }
 
     func boundary(for device: MouseDevice) -> CursorBoundary {
@@ -76,6 +101,41 @@ final class AppState: ObservableObject {
         }
     }
 
+    func rescanDevices() {
+        guard separateCursorEnabled else { return }
+        if !hid.isAvailable {
+            hid.start()
+        } else {
+            hid.retryExclusiveCapture()
+        }
+        hid.rescan()
+        hidAvailable = hid.isAvailable
+        hidExclusive = hid.isExclusive
+    }
+
+    func setSeparateCursorEnabled(_ enabled: Bool) {
+        guard enabled != separateCursorEnabled else { return }
+        separateCursorEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: "separateCursorEnabled")
+
+        if enabled {
+            hid.start()
+            hidAvailable = hid.isAvailable
+            hidExclusive = hid.isExclusive
+            hid.rescan()
+            return
+        }
+
+        releasePressedButtons()
+        hid.stop()
+        devices = []
+        cursors = [:]
+        boundaries = [:]
+        hidAvailable = false
+        hidExclusive = false
+        overlay.update(cursors: [])
+    }
+
     func refreshDisplays() {
         catalog.refresh()
         displays = catalog.displays
@@ -88,39 +148,47 @@ final class AppState: ObservableObject {
         overlay.refreshScreens()
     }
 
-    func openAccessibilitySettings() {
-        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+    func openInputMonitoringSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") else { return }
+        NSWorkspace.shared.open(url)
     }
 
-    func setIndependentMode(_ enabled: Bool) {
-        if enabled {
-            guard eventTap.start() else {
-                independentMode = false
-                UserDefaults.standard.set(false, forKey: "independentMode")
-                accessibilityTrusted = AXIsProcessTrusted()
-                return
-            }
-        } else {
-            eventTap.stop()
+    func requestClickAccess() {
+        postEventsAvailable = CGPreflightPostEventAccess() || CGRequestPostEventAccess()
+        if !postEventsAvailable {
+            guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else { return }
+            NSWorkspace.shared.open(url)
         }
-        independentMode = enabled
-        UserDefaults.standard.set(enabled, forKey: "independentMode")
+    }
+
+    func requestInputMonitoringAccess() {
+        let preflightGranted = CGPreflightListenEventAccess()
+        let requested = CGRequestListenEventAccess()
+        rescanDevices()
+        if !preflightGranted || !requested || !hid.isExclusive {
+            openInputMonitoringSettings()
+        }
     }
 
     private func setDevices(_ devices: [MouseDevice]) {
-        self.devices = devices
+        let selectedDevices = Array(devices.prefix(1))
+        self.devices = selectedDevices
+        hidAvailable = hid.isAvailable
+        hidExclusive = hid.isExclusive
         let defaultPoint = NSScreen.main?.frame.midPoint ?? CGPoint(x: 300, y: 300)
-        for device in devices where cursors[device.id] == nil {
+        for device in selectedDevices where cursors[device.id] == nil {
             cursors[device.id] = defaultPoint
         }
-        for id in cursors.keys where !devices.contains(where: { $0.id == id }) {
+        for id in cursors.keys where !selectedDevices.contains(where: { $0.id == id }) {
             cursors.removeValue(forKey: id)
             boundaries.removeValue(forKey: id)
+            pressedButtons.removeValue(forKey: id)
         }
         overlay.update(cursors: cursorVisuals)
     }
 
     private func move(deviceID: String, delta: CGPoint) {
+        guard separateCursorEnabled else { return }
         guard let point = cursors[deviceID] else { return }
         cursors[deviceID] = CursorGeometry.move(
             point: point,
@@ -128,7 +196,46 @@ final class AppState: ObservableObject {
             boundary: boundary(forID: deviceID),
             displays: catalog.coreDisplays()
         )
+        for button in pressedButtons[deviceID] ?? [] {
+            eventInjector.postDrag(button: button, at: cursors[deviceID] ?? point)
+        }
         overlay.update(cursors: cursorVisuals)
+    }
+
+    private func button(deviceID: String, button: Int, pressed: Bool) {
+        guard separateCursorEnabled else { return }
+        guard let point = cursors[deviceID] else { return }
+        if pressed {
+            pressedButtons[deviceID, default: []].insert(button)
+        } else {
+            pressedButtons[deviceID, default: []].remove(button)
+        }
+        eventInjector.postButton(button: button, pressed: pressed, at: point)
+        refreshPostEventsAvailability()
+    }
+
+    private func scroll(deviceID: String, delta: CGFloat) {
+        guard separateCursorEnabled else { return }
+        guard let point = cursors[deviceID] else { return }
+        eventInjector.postScroll(delta: delta, at: point)
+        refreshPostEventsAvailability()
+    }
+
+    private func releasePressedButtons() {
+        for (deviceID, buttons) in pressedButtons {
+            guard let point = cursors[deviceID] else { continue }
+            for button in buttons {
+                eventInjector.postButton(button: button, pressed: false, at: point)
+            }
+        }
+        pressedButtons.removeAll()
+    }
+
+    private func refreshPostEventsAvailability() {
+        let available = CGPreflightPostEventAccess()
+        if postEventsAvailable != available {
+            postEventsAvailable = available
+        }
     }
 
     private func boundary(forID id: String) -> CursorBoundary {
@@ -147,15 +254,6 @@ final class AppState: ObservableObject {
 
     private func key(for id: String) -> String { "boundary.\(id)" }
 
-    private func updateEventTap() {
-        if independentMode {
-            if !eventTap.isRunning, !eventTap.start() {
-                accessibilityTrusted = AXIsProcessTrusted()
-            }
-        } else {
-            eventTap.stop()
-        }
-    }
 }
 
 private extension CGRect {

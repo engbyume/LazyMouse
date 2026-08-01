@@ -7,9 +7,13 @@ struct LazyMouseApp: App {
     @StateObject private var appState = AppState()
 
     var body: some Scene {
-        MenuBarExtra("LazyMouse", systemImage: "cursorarrow.rays") {
+        MenuBarExtra {
             MainMenuView()
                 .environmentObject(appState)
+        } label: {
+            Image(nsImage: LazyMouseBranding.menuBarImage)
+                .renderingMode(.original)
+                .help("LazyMouse")
         }
         .menuBarExtraStyle(.window)
     }

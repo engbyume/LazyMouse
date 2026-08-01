@@ -8,39 +8,66 @@ struct MainMenuView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("LazyMouse", systemImage: "cursorarrow.rays")
+                Image(nsImage: LazyMouseBranding.appIconImage)
+                    .renderingMode(.original)
+                    .frame(width: 24, height: 24)
+                Text("LazyMouse")
                     .font(.headline)
                 Spacer()
                 Circle()
-                    .fill(state.accessibilityTrusted ? .green : .orange)
+                    .fill(state.separateCursorEnabled ? (state.hidExclusive ? .green : .orange) : .gray)
                     .frame(width: 8, height: 8)
             }
 
-            Toggle("Independent cursor mode", isOn: Binding(
-                get: { state.independentMode },
-                set: { state.setIndependentMode($0) }
+            Toggle("Separate external-mouse cursor", isOn: Binding(
+                get: { state.separateCursorEnabled },
+                set: { state.setSeparateCursorEnabled($0) }
             ))
-            .help("Suppress ordinary mouse movement so each HID mouse can have its own overlay cursor")
 
-            if !state.accessibilityTrusted {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Accessibility permission is needed for independent mode.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Button("Open Accessibility Settings") {
-                        state.openAccessibilitySettings()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+            HStack {
+                Text("Cursor color")
+                Spacer()
+                CursorColorWell(color: state.cursorColor.nsColor) { color in
+                    state.setCursorColor(color)
                 }
+                .frame(width: 28, height: 22)
+                .help("Choose the external cursor color")
+            }
+
+            Text(modeDescription)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if state.separateCursorEnabled && (!state.hidExclusive || state.devices.isEmpty) {
+                Button("Request Input Monitoring Access") {
+                    state.requestInputMonitoringAccess()
+                }
+                .controlSize(.small)
+                Button("Open Input Monitoring Settings") {
+                    state.openInputMonitoringSettings()
+                }
+                .controlSize(.small)
+                .help("Allow LazyMouse to receive HID input from Bluetooth and USB pointing devices")
             }
 
             Divider()
-            Text(state.devices.isEmpty ? "No pointing devices detected" : "Detected mice")
-                .font(.subheadline.weight(.semibold))
+            HStack {
+                Text(statusText)
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Button { state.rescanDevices() } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .help("Rescan connected USB and Bluetooth pointing devices")
+            }
 
             if state.devices.isEmpty {
-                Text("Connect a USB, Bluetooth, or receiver-based mouse, then wait a moment.")
+                Text(emptyStateText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if state.separateCursorEnabled && !state.hidExclusive {
+                Text("The mouse is listed, but exclusive capture is not active. Request Input Monitoring access, then rescan.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
@@ -49,8 +76,17 @@ struct MainMenuView: View {
                 }
             }
 
+            if state.separateCursorEnabled && !state.postEventsAvailable {
+                Button("Request Click Access") {
+                    state.requestClickAccess()
+                }
+                .controlSize(.small)
+            }
+
             Divider()
             HStack {
+                Button("Rescan mice") { state.rescanDevices() }
+                    .controlSize(.small)
                 Button("Refresh displays") { state.refreshDisplays() }
                     .controlSize(.small)
                 Spacer()
@@ -60,6 +96,66 @@ struct MainMenuView: View {
         }
         .padding(16)
         .frame(width: 360)
+    }
+
+    private var modeDescription: String {
+        state.separateCursorEnabled
+            ? "The external mouse uses the overlay; the trackpad keeps the normal cursor."
+            : "The mouse and trackpad both use the normal macOS cursor."
+    }
+
+    private var statusText: String {
+        if !state.separateCursorEnabled { return "Single cursor mode" }
+        if state.devices.isEmpty { return "No external mouse detected" }
+        return state.hidExclusive ? "External mouse isolated" : "Mouse detected; capture unavailable"
+    }
+
+    private var emptyStateText: String {
+        if !state.separateCursorEnabled {
+            return "Turn on separate cursor mode to use the external mouse independently."
+        }
+        if state.hidAvailable {
+            return "Connect the external mouse, then rescan. The built-in trackpad stays with the normal cursor."
+        }
+        return "LazyMouse could not open the HID manager. Check Input Monitoring permission, then rescan."
+    }
+}
+
+private struct CursorColorWell: NSViewRepresentable {
+    let color: NSColor
+    let onChange: (NSColor) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onChange: onChange)
+    }
+
+    func makeNSView(context: Context) -> NSColorWell {
+        let colorWell = NSColorWell()
+        colorWell.color = color
+        colorWell.setAccessibilityLabel("Cursor color")
+        colorWell.identifier = NSUserInterfaceItemIdentifier("cursor-color-well")
+        colorWell.target = context.coordinator
+        colorWell.action = #selector(Coordinator.colorChanged(_:))
+        return colorWell
+    }
+
+    func updateNSView(_ nsView: NSColorWell, context: Context) {
+        if nsView.color != color {
+            nsView.color = color
+        }
+        context.coordinator.onChange = onChange
+    }
+
+    final class Coordinator: NSObject {
+        var onChange: (NSColor) -> Void
+
+        init(onChange: @escaping (NSColor) -> Void) {
+            self.onChange = onChange
+        }
+
+        @objc func colorChanged(_ sender: NSColorWell) {
+            onChange(sender.color)
+        }
     }
 }
 
